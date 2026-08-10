@@ -82,12 +82,10 @@ public class RoomLayoutProbe : MonoBehaviour
         surfacePoint = worldPoint;
         if (_room == null) return false;
 
-        var surfaceType = MRUK.SurfaceType.FACING_UP
-                        | MRUK.SurfaceType.VERTICAL
-                        | MRUK.SurfaceType.FACING_DOWN;
-
-        var dist = _room.TryGetClosestSurfacePosition(worldPoint, out var pos, out _, surfaceType);
-        if (float.IsNaN(dist)) return false;
+        // The optional last argument is a LabelFilter, not a SurfaceType; the default
+        // includes every label. Returns Mathf.Infinity -- not NaN -- when nothing is found.
+        var dist = _room.TryGetClosestSurfacePosition(worldPoint, out var pos, out _);
+        if (float.IsInfinity(dist)) return false;
 
         surfacePoint = pos;
         return true;

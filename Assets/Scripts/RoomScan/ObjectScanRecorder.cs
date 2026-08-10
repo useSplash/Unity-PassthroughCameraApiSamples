@@ -113,7 +113,8 @@ namespace RoomScan
             if (!TryBuildWorldRay(boxPixels.center, capturePose, out var centerRay)) return;
 
             // --- 2. Depth raycast to find how far away it actually is ---
-            if (!raycastManager.Raycast(centerRay, out var hit)) return;
+            // Raycast() returns true only when status == Hit, so no status check is needed.
+            if (!raycastManager.Raycast(centerRay, out var hit, maxRaycastDistance)) return;
 
             var hitPoint = hit.point;
             var depth = Vector3.Distance(centerRay.origin, hitPoint);
