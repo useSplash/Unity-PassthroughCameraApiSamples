@@ -18,7 +18,7 @@ namespace RoomScan
     [RequireComponent(typeof(ObjectDetectionAgent))]
     public class ObjectDetectionScanBridge : MonoBehaviour
     {
-        [Tooltip("Left blank, this is found in the scene at Awake.")]
+        [Tooltip("The object carrying ObjectScanRecorder.")]
         public ObjectScanRecorder recorder;
 
         [Tooltip("Log every detection with its capture pose. Noisy -- for bring-up only.")]
@@ -39,10 +39,7 @@ namespace RoomScan
             _depth = GetComponent<DepthTextureAccess>();
 
             if (recorder == null)
-                recorder = FindAnyObjectByType<ObjectScanRecorder>();
-
-            if (recorder == null)
-                Debug.LogError("[ScanBridge] No ObjectScanRecorder in the scene.");
+                Debug.LogError("[ScanBridge] recorder is not assigned in the Inspector.");
 
             if (_depth == null)
                 Debug.LogError("[ScanBridge] No DepthTextureAccess on this GameObject. The Object " +

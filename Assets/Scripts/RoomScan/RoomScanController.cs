@@ -13,10 +13,10 @@ namespace RoomScan
     public class RoomScanController : MonoBehaviour
     {
         [Header("References")]
-        [Tooltip("Left blank, these are found in the scene at Awake.")]
+        [Tooltip("The object carrying ObjectScanRecorder.")]
         public ObjectScanRecorder recorder;
 
-        [Tooltip("Optional. Lets you re-run a rebuild without relaunching.")]
+        [Tooltip("Optional -- leave empty until step 6. Lets you re-run a rebuild without relaunching.")]
         public RoomScanRebuilder rebuilder;
 
         [Header("Bindings")]
@@ -37,11 +37,8 @@ namespace RoomScan
 
         private void Awake()
         {
-            if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
-            if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
-
             if (recorder == null)
-                Debug.LogError("[RoomScanController] No ObjectScanRecorder in the scene.");
+                Debug.LogError("[RoomScanController] recorder is not assigned in the Inspector.");
         }
 
         private void Update()

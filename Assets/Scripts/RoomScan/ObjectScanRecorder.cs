@@ -16,9 +16,10 @@ namespace RoomScan
     public class ObjectScanRecorder : MonoBehaviour
     {
         [Header("References")]
+        [Tooltip("The EnvironmentRaycastManager in the scene.")]
         public EnvironmentRaycastManager raycastManager;
 
-        [Tooltip("Left blank, this is found in the scene at Start.")]
+        [Tooltip("The [BuildingBlock] Passthrough Camera Access object.")]
         public PassthroughCameraAccess cameraAccess;
 
         [Header("Clustering")]
@@ -60,20 +61,14 @@ namespace RoomScan
 
         private void Start()
         {
-            if (raycastManager == null)
-                raycastManager = FindAnyObjectByType<EnvironmentRaycastManager>();
-
-            if (cameraAccess == null)
-                cameraAccess = FindAnyObjectByType<PassthroughCameraAccess>();
-
             if (!EnvironmentRaycastManager.IsSupported)
                 Debug.LogError("[ObjectScanRecorder] Depth API unsupported on this device/OS.");
 
             if (raycastManager == null)
-                Debug.LogError("[ObjectScanRecorder] No EnvironmentRaycastManager in the scene.");
+                Debug.LogError("[ObjectScanRecorder] raycastManager is not assigned in the Inspector.");
 
             if (cameraAccess == null)
-                Debug.LogError("[ObjectScanRecorder] No PassthroughCameraAccess in the scene.");
+                Debug.LogError("[ObjectScanRecorder] cameraAccess is not assigned in the Inspector.");
 
             if (MRUK.Instance != null)
             {
