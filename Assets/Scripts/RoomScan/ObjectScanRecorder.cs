@@ -198,10 +198,13 @@ namespace RoomScan
 
             if (_room != null)
             {
-                if (_room.FloorAnchor != null)
-                    file.room.floorY = WorldToRoom(_room.FloorAnchor.transform.position).y;
-                if (_room.CeilingAnchor != null)
-                    file.room.ceilingY = WorldToRoom(_room.CeilingAnchor.transform.position).y;
+                // MRUK 205 exposes these as lists -- High Fidelity scene can report more
+                // than one floor or ceiling. The schema stores a single height, so take
+                // the first, which is what the obsolete singular properties returned.
+                if (_room.FloorAnchors.Count > 0)
+                    file.room.floorY = WorldToRoom(_room.FloorAnchors[0].transform.position).y;
+                if (_room.CeilingAnchors.Count > 0)
+                    file.room.ceilingY = WorldToRoom(_room.CeilingAnchors[0].transform.position).y;
 
                 foreach (var wall in _room.WallAnchors)
                 {

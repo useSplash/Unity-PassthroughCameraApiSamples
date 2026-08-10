@@ -39,10 +39,11 @@ public class RoomLayoutProbe : MonoBehaviour
         var sb = new StringBuilder();
 
         // Structural anchors -- your "room layout".
-        if (_room.FloorAnchor != null)
-            sb.AppendLine($"FLOOR   pos={_room.FloorAnchor.transform.position}");
-        if (_room.CeilingAnchor != null)
-            sb.AppendLine($"CEILING pos={_room.CeilingAnchor.transform.position}");
+        // Lists in MRUK 205 -- High Fidelity scene can report more than one of each.
+        foreach (var floor in _room.FloorAnchors)
+            sb.AppendLine($"FLOOR   pos={floor.transform.position}");
+        foreach (var ceiling in _room.CeilingAnchors)
+            sb.AppendLine($"CEILING pos={ceiling.transform.position}");
 
         foreach (var wall in _room.WallAnchors)
             sb.AppendLine($"WALL    pos={wall.transform.position} size={wall.PlaneRect?.size}");
