@@ -7452,6 +7452,8 @@ GameObject:
   - component: {fileID: 1339185260}
   - component: {fileID: 1339185259}
   - component: {fileID: 1339185258}
+  - component: {fileID: 1339185263}
+  - component: {fileID: 1339185264}
   m_Layer: 0
   m_Name: Room Scan
   m_TagString: Untagged
@@ -7472,7 +7474,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomScanController
   recorder: {fileID: 1339185259}
-  rebuilder: {fileID: 0}
+  rebuilder: {fileID: 1339185264}
   exportButton: 1
   clearButton: 2
   rebuildButton: 4
@@ -7522,6 +7524,47 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: meta.xr.mrutilitykit::Meta.XR.EnvironmentRaycastManager
   CustomTrackingSpace: {fileID: 0}
+--- !u!114 &1339185263
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c07d911374147cb9627ce5624dedb8e, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.LiveScanVisualizer
+  recorder: {fileID: 1339185259}
+  showPending: 1
+  showLabels: 1
+  pendingColor: {r: 1, g: 0.75, b: 0.2, a: 0.45}
+  confirmedColor: {r: 0.3, g: 1, b: 0.6, a: 0.95}
+  lineWidth: 0.005
+  labelHeightOffset: 0.05
+  lineMaterial: {fileID: 0}
+  refreshInterval: 0.15
+--- !u!114 &1339185264
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14eb07e3b9bbe6348ac2acbd60b0d7ec, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomScanRebuilder
+  boxPrefab: {fileID: 0}
+  lineMaterial: {fileID: 0}
+  lineWidth: 0.005
+  boxColor: {r: 0.3, g: 0.7, b: 1, a: 0.95}
+  showLabels: 1
+  labelHeightOffset: 0.1
+  jsonPath:
+  rebuildOnStart: 0
 --- !u!4 &1339185262
 Transform:
   m_ObjectHideFlags: 0

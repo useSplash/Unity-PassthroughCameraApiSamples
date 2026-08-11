@@ -12,9 +12,18 @@ namespace RoomScan
     public class RoomScanRebuilder : MonoBehaviour
     {
         [Header("Visuals")]
-        [Tooltip("Optional. If empty, a unit cube with the wireframe material is used.")]
+        [Tooltip("Optional. If empty, a runtime WireBox is used -- same look as the live scan.")]
         public GameObject boxPrefab;
-        public Material wireframeMaterial;
+
+        [Tooltip("Optional override for the wireframe material. Leave empty for the built-in one.")]
+        public Material lineMaterial;
+
+        [Tooltip("Edge thickness, metres. Ignored when boxPrefab is set.")]
+        public float lineWidth = 0.005f;
+
+        [Tooltip("Colour of rebuilt boxes. Ignored when boxPrefab is set.")]
+        public Color boxColor = new Color(0.3f, 0.7f, 1f, 0.95f);
+
         public bool showLabels = true;
         public float labelHeightOffset = 0.1f;
 
@@ -67,57 +76,46 @@ namespace RoomScan
         {
             var worldPos = RoomToWorld(obj.position.ToVector3());
             var worldRot = RoomToWorld(obj.rotation.ToQuaternion());
+            var size = obj.size.ToVector3();
 
             GameObject go;
             if (boxPrefab != null)
             {
                 go = Instantiate(boxPrefab, worldPos, worldRot, transform);
-                go.transform.localScale = obj.size.ToVector3();
+                go.transform.localScale = size;
             }
             else
             {
-                go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                go.transform.SetParent(transform, false);
-                go.transform.SetPositionAndRotation(worldPos, worldRot);
-                go.transform.localScale = obj.size.ToVector3();
-
-                // Collider off so boxes don't fight your interactions.
-                var col = go.GetComponent<Collider>();
-                if (col != null) Destroy(col);
-
-                if (wireframeMaterial != null)
-                    go.GetComponent<Renderer>().material = wireframeMaterial;
+                var box = WireBox.Create("box", transform, lineMaterial, lineWidth);
+                box.transform.SetPositionAndRotation(worldPos, worldRot);
+                box.SetSize(size);
+                box.SetColor(boxColor);
+                go = box.gameObject;
             }
 
             go.name = $"{obj.id}_{obj.label}";
 
-            if (showLabels) AttachLabel(go, obj);
+            if (showLabels) AttachLabel(go, obj, size);
 
             return go;
         }
 
-        private void AttachLabel(GameObject parent, ScannedObject obj)
+        private void AttachLabel(GameObject parent, ScannedObject obj, Vector3 size)
         {
-            var labelGo = new GameObject("label");
-            labelGo.transform.SetParent(parent.transform, false);
+            var label = ScanLabel.Attach(parent.transform, 0.03f);
 
-            // Sit above the box, and undo the parent's non-uniform scale so
-            // the text isn't stretched.
+            // A prefab box is scaled by the object's size, so the label has to divide
+            // that back out or the text comes out stretched. A WireBox keeps its scale
+            // at 1, in which case this is a no-op.
             var s = parent.transform.localScale;
-            labelGo.transform.localPosition = new Vector3(0f, 0.5f + labelHeightOffset / Mathf.Max(s.y, 1e-3f), 0f);
-            labelGo.transform.localScale = new Vector3(1f / Mathf.Max(s.x, 1e-3f),
-                                                       1f / Mathf.Max(s.y, 1e-3f),
-                                                       1f / Mathf.Max(s.z, 1e-3f));
+            label.transform.localScale = new Vector3(1f / Mathf.Max(s.x, 1e-3f),
+                                                     1f / Mathf.Max(s.y, 1e-3f),
+                                                     1f / Mathf.Max(s.z, 1e-3f));
+            label.transform.localPosition =
+                new Vector3(0f, (size.y * 0.5f + labelHeightOffset) / Mathf.Max(s.y, 1e-3f), 0f);
 
-            var tm = labelGo.AddComponent<TextMesh>();
-            tm.text = $"{obj.label}\n{obj.confidence:P0} · {obj.observations}x";
-            tm.characterSize = 0.03f;
-            tm.fontSize = 96;
-            tm.anchor = TextAnchor.LowerCenter;
-            tm.alignment = TextAlignment.Center;
-            tm.color = Color.white;
-
-            labelGo.AddComponent<FaceCamera>();
+            label.text = $"{obj.label}\n{obj.confidence:P0} · {obj.observations}x";
+            label.color = new Color(boxColor.r, boxColor.g, boxColor.b, 1f);
         }
 
         public void Clear()

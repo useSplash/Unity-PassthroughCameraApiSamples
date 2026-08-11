@@ -40,10 +40,14 @@ namespace RoomScan
         [Tooltip("Discard a cluster if its box grows larger than this on any axis.")]
         public float maxObjectSize = 3f;
 
+        /// <summary>Floor on any box extent, so a cluster seen edge-on is still visible.</summary>
+        private const float MinBoxExtent = 0.05f;
+
         // ------------------------------------------------------------------
 
         private class Cluster
         {
+            public int Id;
             public string Label;
             public float BestConfidence;
             public int Observations;
@@ -56,7 +60,50 @@ namespace RoomScan
             public Vector3 Centroid => CentroidSum / Mathf.Max(1, Observations);
         }
 
+        /// <summary>
+        /// Read-only snapshot of one cluster, in ROOM-LOCAL space. This is what
+        /// LiveScanVisualizer draws, and it is computed the same way the exporter
+        /// computes its output -- so a box you can see is a box you will get in the
+        /// JSON, once <see cref="Exportable"/> flips true.
+        /// </summary>
+        public readonly struct ClusterView
+        {
+            /// <summary>Stable for the life of the cluster; survives merges, unlike the export index.</summary>
+            public readonly int Id;
+
+            public readonly string Label;
+            public readonly float Confidence;
+            public readonly int Observations;
+            public readonly Vector3 RoomCenter;
+            public readonly Quaternion RoomRotation;
+            public readonly Vector3 Size;
+
+            /// <summary>True when this cluster would survive into the exported JSON right now.</summary>
+            public readonly bool Exportable;
+
+            public ClusterView(int id, string label, float confidence, int observations,
+                               Vector3 roomCenter, Quaternion roomRotation, Vector3 size,
+                               bool exportable)
+            {
+                Id = id;
+                Label = label;
+                Confidence = confidence;
+                Observations = observations;
+                RoomCenter = roomCenter;
+                RoomRotation = roomRotation;
+                Size = size;
+                Exportable = exportable;
+            }
+        }
+
+        /// <summary>Raised when a cluster is created or grows. Payload is room-local.</summary>
+        public event Action<ClusterView> OnClusterChanged;
+
+        /// <summary>Raised by <see cref="ClearScan"/> so visualisers can drop their boxes.</summary>
+        public event Action OnScanCleared;
+
         private readonly List<Cluster> _clusters = new List<Cluster>();
+        private int _nextClusterId;
         private MRUKRoom _room;
 
         private void Start()
@@ -159,6 +206,7 @@ namespace RoomScan
             {
                 cluster = new Cluster
                 {
+                    Id = _nextClusterId++,
                     Label = label,
                     BestConfidence = confidence,
                     Observations = 0,
@@ -183,6 +231,8 @@ namespace RoomScan
             // dimension -- a single 2D box can never give you depth extent.
             foreach (var lc in localCorners) cluster.RoomBounds.Encapsulate(lc);
             cluster.RoomBounds.Encapsulate(localCenter);
+
+            OnClusterChanged?.Invoke(Describe(cluster));
         }
 
         // ==================================================================
@@ -224,27 +274,18 @@ namespace RoomScan
             int index = 0;
             foreach (var c in _clusters)
             {
-                if (c.Observations < minObservations) continue;
-
-                var size = c.RoomBounds.size;
-                if (size.x > maxObjectSize || size.y > maxObjectSize || size.z > maxObjectSize)
-                    continue;   // runaway cluster, almost certainly bad depth hits
-
-                // Give flat clusters a minimum thickness so the box is visible.
-                size = new Vector3(
-                    Mathf.Max(size.x, 0.05f),
-                    Mathf.Max(size.y, 0.05f),
-                    Mathf.Max(size.z, 0.05f));
+                var view = Describe(c);
+                if (!view.Exportable) continue;
 
                 file.objects.Add(new ScannedObject
                 {
                     id = $"obj_{index++:D3}",
-                    label = c.Label,
-                    confidence = c.BestConfidence,
-                    observations = c.Observations,
-                    position = new Vec3(c.RoomBounds.center),
-                    rotation = new Quat(c.Orientation),
-                    size = new Vec3(size),
+                    label = view.Label,
+                    confidence = view.Confidence,
+                    observations = view.Observations,
+                    position = new Vec3(view.RoomCenter),
+                    rotation = new Quat(view.RoomRotation),
+                    size = new Vec3(view.Size),
                     firstSeenUtc = c.FirstSeen.ToString("o"),
                     lastSeenUtc = c.LastSeen.ToString("o")
                 });
@@ -258,9 +299,53 @@ namespace RoomScan
             RoomScanIO.Save(BuildScanFile(), path);
         }
 
-        public void ClearScan() => _clusters.Clear();
+        public void ClearScan()
+        {
+            _clusters.Clear();
+            OnScanCleared?.Invoke();
+        }
 
         public int PendingClusterCount => _clusters.Count;
+
+        // ==================================================================
+        // LIVE VIEW
+        // ==================================================================
+
+        /// <summary>
+        /// Replaces the contents of <paramref name="destination"/> with the current
+        /// cluster set, room-local. Takes a caller-owned list so a per-frame visualiser
+        /// does not allocate.
+        /// </summary>
+        public void SnapshotClusters(List<ClusterView> destination)
+        {
+            if (destination == null) return;
+
+            destination.Clear();
+            foreach (var c in _clusters) destination.Add(Describe(c));
+        }
+
+        /// <summary>
+        /// The single definition of "what this cluster currently amounts to". Both the
+        /// exporter and the live visualiser go through here, so the two can never
+        /// disagree about a box's centre, size, or whether it counts yet.
+        /// </summary>
+        private ClusterView Describe(Cluster c)
+        {
+            var raw = c.RoomBounds.size;
+
+            // A runaway box is almost certainly scattered depth hits, not a real object.
+            var oversized = raw.x > maxObjectSize || raw.y > maxObjectSize || raw.z > maxObjectSize;
+
+            var size = new Vector3(
+                Mathf.Max(raw.x, MinBoxExtent),
+                Mathf.Max(raw.y, MinBoxExtent),
+                Mathf.Max(raw.z, MinBoxExtent));
+
+            return new ClusterView(
+                c.Id, c.Label, c.BestConfidence, c.Observations,
+                c.RoomBounds.center, c.Orientation, size,
+                exportable: c.Observations >= minObservations && !oversized);
+        }
 
         // ==================================================================
         // HELPERS
@@ -313,5 +398,15 @@ namespace RoomScan
 
         private Quaternion WorldToRoom(Quaternion world)
             => _room == null ? world : Quaternion.Inverse(_room.transform.rotation) * world;
+
+        /// <summary>
+        /// Room-local -> world. Public because the live visualiser needs it, and keeping
+        /// it here means the pipeline has exactly one definition of "room space".
+        /// </summary>
+        public Vector3 RoomToWorld(Vector3 local)
+            => _room == null ? local : _room.transform.TransformPoint(local);
+
+        public Quaternion RoomToWorld(Quaternion local)
+            => _room == null ? local : _room.transform.rotation * local;
     }
 }
