@@ -19,15 +19,26 @@ namespace RoomScan
         [Tooltip("Optional -- leave empty until step 6. Lets you re-run a rebuild without relaunching.")]
         public RoomScanRebuilder rebuilder;
 
+        [Tooltip("Optional. Outlines MRUK's floor and walls.")]
+        public RoomShellVisualizer shellVisualizer;
+
+        // With both controllers connected OVRInput promotes the active controller to
+        // Controller.Touch, under which One/Two are the RIGHT controller's A/B and
+        // Three/Four are the LEFT controller's X/Y. On a single controller Three and
+        // Four resolve to nothing, so those two bindings go dead -- as do all of them
+        // if hand tracking takes over as the active controller.
         [Header("Bindings")]
-        [Tooltip("A / X -- write room_scan.json.")]
+        [Tooltip("A -- write room_scan.json.")]
         public OVRInput.Button exportButton = OVRInput.Button.One;
 
-        [Tooltip("B / Y -- discard all pending clusters and start over.")]
+        [Tooltip("B -- discard all pending clusters and start over.")]
         public OVRInput.Button clearButton = OVRInput.Button.Two;
 
-        [Tooltip("Left X -- reload the JSON and respawn boxes. Ignored if no rebuilder.")]
+        [Tooltip("X -- reload the JSON and respawn boxes. Ignored if no rebuilder.")]
         public OVRInput.Button rebuildButton = OVRInput.Button.Three;
+
+        [Tooltip("Y -- toggle the room floor/wall outlines. Ignored if no shell visualizer.")]
+        public OVRInput.Button shellToggleButton = OVRInput.Button.Four;
 
         [Header("Diagnostics")]
         [Tooltip("Seconds between pending-cluster logs. 0 disables.")]
@@ -60,6 +71,12 @@ namespace RoomScan
             if (rebuilder != null && OVRInput.GetDown(rebuildButton))
             {
                 rebuilder.Rebuild();
+            }
+
+            if (shellVisualizer != null && OVRInput.GetDown(shellToggleButton))
+            {
+                shellVisualizer.Toggle();
+                Debug.Log($"[RoomScanController] Room shell {(shellVisualizer.IsShowing ? "shown" : "hidden")}.");
             }
 
             // A stationary object should settle on a stable count. A count that keeps

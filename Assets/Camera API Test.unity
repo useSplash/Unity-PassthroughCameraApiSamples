@@ -7454,6 +7454,7 @@ GameObject:
   - component: {fileID: 1339185258}
   - component: {fileID: 1339185263}
   - component: {fileID: 1339185264}
+  - component: {fileID: 1339185265}
   m_Layer: 0
   m_Name: Room Scan
   m_TagString: Untagged
@@ -7475,9 +7476,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomScanController
   recorder: {fileID: 1339185259}
   rebuilder: {fileID: 1339185264}
+  shellVisualizer: {fileID: 1339185265}
   exportButton: 1
   clearButton: 2
   rebuildButton: 4
+  shellToggleButton: 8
   statusLogInterval: 2
 --- !u!114 &1339185259
 MonoBehaviour:
@@ -7570,6 +7573,28 @@ MonoBehaviour:
   labelHeightOffset: 0.1
   jsonPath:
   rebuildOnStart: 0
+--- !u!114 &1339185265
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d829dc46f5354879a4daaa5e075b5a05, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomShellVisualizer
+  showFloor: 1
+  showWalls: 1
+  showCeiling: 0
+  drawOnSceneLoaded: 1
+  floorColor: {r: 0.2, g: 0.9, b: 1, a: 0.9}
+  wallColor: {r: 0.4, g: 0.6, b: 1, a: 0.5}
+  ceilingColor: {r: 0.6, g: 0.6, b: 0.7, a: 0.35}
+  lineWidth: 0.01
+  surfaceOffset: 0.01
+  lineMaterial: {fileID: 0}
 --- !u!4 &1339185262
 Transform:
   m_ObjectHideFlags: 0

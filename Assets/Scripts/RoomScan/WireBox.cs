@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace RoomScan
 {
@@ -42,8 +41,6 @@ namespace RoomScan
             new Vector3(-0.5f, -0.5f,  0.5f),
         };
 
-        private static Material _sharedMaterial;
-
         private LineRenderer _line;
         private readonly Vector3[] _points = new Vector3[UnitPath.Length];
 
@@ -66,20 +63,10 @@ namespace RoomScan
         public void Configure(Material material, float width)
         {
             var line = Line;
-            line.useWorldSpace = false;
+            WireMaterial.Configure(line, material, width);
             line.loop = false;
-            line.alignment = LineAlignment.View;    // ribbons always face the headset
-            line.textureMode = LineTextureMode.Stretch;
-            line.numCapVertices = 0;
-            line.numCornerVertices = 0;
-            line.shadowCastingMode = ShadowCastingMode.Off;
-            line.receiveShadows = false;
-            line.lightProbeUsage = LightProbeUsage.Off;
-            line.reflectionProbeUsage = ReflectionProbeUsage.Off;
             line.positionCount = UnitPath.Length;
-            line.sharedMaterial = material != null ? material : SharedMaterial;
 
-            SetWidth(width);
             SetSize(Size);
         }
 
@@ -100,30 +87,5 @@ namespace RoomScan
         }
 
         public void SetWidth(float width) => Line.widthMultiplier = Mathf.Max(width, 1e-4f);
-
-        /// <summary>
-        /// Sprites/Default is unlit, alpha-blended and depth-write-free, which is what
-        /// you want over passthrough. It is also listed in this project's Always Included
-        /// Shaders, so Shader.Find resolves it in a player build and not just in the editor.
-        /// </summary>
-        private static Material SharedMaterial
-        {
-            get
-            {
-                if (_sharedMaterial != null) return _sharedMaterial;
-
-                var shader = Shader.Find("Sprites/Default");
-                if (shader == null)
-                {
-                    Debug.LogError("[WireBox] Sprites/Default not found. Assign a material " +
-                                   "explicitly, or add the shader to Project Settings > " +
-                                   "Graphics > Always Included Shaders.");
-                    return null;
-                }
-
-                _sharedMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-                return _sharedMaterial;
-            }
-        }
     }
 }
