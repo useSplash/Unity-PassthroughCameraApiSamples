@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 51b3ba5b8252a3946994627a1787562e
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Materials/CC_Base_Tear_Ducts.mat
+  uploadId: 964386

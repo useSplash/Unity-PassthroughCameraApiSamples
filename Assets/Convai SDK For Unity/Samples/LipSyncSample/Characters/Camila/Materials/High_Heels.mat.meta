@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: c576c3a3c8e93c04684803fc5df4e686
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Materials/High_Heels.mat
+  uploadId: 964386

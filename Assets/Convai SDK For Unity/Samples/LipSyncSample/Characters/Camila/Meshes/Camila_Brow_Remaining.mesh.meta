@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 412348784c4c95f499e0c6a15d987fba
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 4300000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Meshes/Camila_Brow_Remaining.mesh
+  uploadId: 964386

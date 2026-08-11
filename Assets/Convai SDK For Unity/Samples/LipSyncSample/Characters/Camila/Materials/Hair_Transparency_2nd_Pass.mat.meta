@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: ccaf03378fff24d42bb329c046f68828
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Materials/Hair_Transparency_2nd_Pass.mat
+  uploadId: 964386

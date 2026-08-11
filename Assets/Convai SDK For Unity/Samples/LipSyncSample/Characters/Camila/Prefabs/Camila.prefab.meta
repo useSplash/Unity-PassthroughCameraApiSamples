@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: ec4b68d8903db544783279ca4cefc6c0
+PrefabImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Prefabs/Camila.prefab
+  uploadId: 964386

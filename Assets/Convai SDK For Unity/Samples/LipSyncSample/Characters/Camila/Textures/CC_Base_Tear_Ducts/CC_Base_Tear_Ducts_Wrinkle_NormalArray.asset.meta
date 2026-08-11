@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 63cbfbff1706dcc49a3116469a295c5c
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 18700000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Textures/CC_Base_Tear_Ducts/CC_Base_Tear_Ducts_Wrinkle_NormalArray.asset
+  uploadId: 964386

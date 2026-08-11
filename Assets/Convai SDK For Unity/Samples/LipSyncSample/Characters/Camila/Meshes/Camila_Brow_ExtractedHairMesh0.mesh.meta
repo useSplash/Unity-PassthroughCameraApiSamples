@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: e21c955c7aa33d64aa5fdb92f1702190
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 4300000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 235621
+  packageName: NPC AI Engine - Dialog, actions, voice and lipsync - Convai
+  packageVersion: 4.4.1
+  assetPath: Assets/Convai SDK For Unity/Samples/LipSyncSample/Characters/Camila/Meshes/Camila_Brow_ExtractedHairMesh0.mesh
+  uploadId: 964386
