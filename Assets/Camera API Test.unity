@@ -7496,6 +7496,11 @@ MonoBehaviour:
   mergeRadius: 0.5
   minObservations: 5
   minConfidence: 0
+  mergeOverlap: 0.25
+  ignoredLabels:
+  - person
+  extentPercentile: 0.8
+  extentSampleCount: 64
   maxRaycastDistance: 6
   maxObjectSize: 3
 --- !u!114 &1339185260

@@ -33,6 +33,25 @@ namespace RoomScan
                  "scoreThreshold already filter upstream, so this is normally left at 0.")]
         [Range(0f, 1f)] public float minConfidence = 0f;
 
+        [Tooltip("Two same-label clusters collapse into one when the smaller box is at least " +
+                 "this fraction swallowed by the other. Catches splits that mergeRadius misses. " +
+                 "0 disables overlap merging.")]
+        [Range(0f, 1f)] public float mergeOverlap = 0.25f;
+
+        [Header("Filtering")]
+        [Tooltip("YOLO classes to ignore, case-insensitive. 'person' is here by default: people " +
+                 "move, and a cluster that smears along someone's path is meaningless.")]
+        public List<string> ignoredLabels = new List<string> { "person" };
+
+        [Header("Size estimation")]
+        [Tooltip("Fraction of observations kept when measuring extents. 0.8 discards the most " +
+                 "extreme 10% at each end -- that is what stops one stray depth hit from " +
+                 "inflating a box permanently. 1 keeps everything (the old behaviour).")]
+        [Range(0.2f, 1f)] public float extentPercentile = 0.8f;
+
+        [Tooltip("How many recent observations feed the size estimate. Older ones are overwritten.")]
+        [Range(8, 256)] public int extentSampleCount = 64;
+
         [Header("Sanity limits")]
         [Tooltip("Ignore depth hits further away than this (metres).")]
         public float maxRaycastDistance = 6f;
@@ -51,13 +70,66 @@ namespace RoomScan
             public string Label;
             public float BestConfidence;
             public int Observations;
-            public Bounds RoomBounds;       // grown in room-local space
-            public Vector3 CentroidSum;     // for a stable centre estimate
-            public Quaternion Orientation;
+
+            /// <summary>
+            /// The cluster's own frame, fixed when the cluster is created and never changed.
+            /// Extents are measured in it, so the exported rotation and size finally describe
+            /// the SAME box -- the old code measured a room-axis-aligned box and then drew it
+            /// rotated, which is not a valid oriented box. Re-aiming the frame later would
+            /// invalidate every extent already accumulated in it, which is why a better-
+            /// confidence observation no longer overwrites it.
+            /// </summary>
+            public Vector3 Origin;
+            public Quaternion Rotation;
+
+            public Vector3 CentroidSum;     // room-local, for merge-distance tests
             public DateTime FirstSeen;
             public DateTime LastSeen;
 
+            /// <summary>
+            /// Ring buffer of per-observation AABBs in CLUSTER-LOCAL space. Taking percentiles
+            /// across these is what replaced the old monotonic Encapsulate(): a union only ever
+            /// grows, so a single bad depth hit was baked into the box forever.
+            /// </summary>
+            public readonly List<Vector3> Mins = new List<Vector3>();
+            public readonly List<Vector3> Maxs = new List<Vector3>();
+            public int Cursor;
+
+            public bool ExtentsDirty = true;
+            public Bounds CachedLocal;
+
             public Vector3 Centroid => CentroidSum / Mathf.Max(1, Observations);
+
+            public Vector3 ToLocal(Vector3 roomPoint) => Quaternion.Inverse(Rotation) * (roomPoint - Origin);
+            public Vector3 ToRoom(Vector3 localPoint) => Origin + Rotation * localPoint;
+
+            public void AddObservation(Vector3 min, Vector3 max, int capacity)
+            {
+                capacity = Mathf.Max(1, capacity);
+
+                // The Inspector can shrink the capacity mid-scan; drop the overflow rather
+                // than let stale samples keep feeding the percentiles.
+                while (Mins.Count > capacity)
+                {
+                    Mins.RemoveAt(Mins.Count - 1);
+                    Maxs.RemoveAt(Maxs.Count - 1);
+                }
+
+                if (Mins.Count < capacity)
+                {
+                    Mins.Add(min);
+                    Maxs.Add(max);
+                    Cursor = Mins.Count % capacity;
+                }
+                else
+                {
+                    Mins[Cursor] = min;
+                    Maxs[Cursor] = max;
+                    Cursor = (Cursor + 1) % capacity;
+                }
+
+                ExtentsDirty = true;
+            }
         }
 
         /// <summary>
@@ -106,6 +178,14 @@ namespace RoomScan
         private int _nextClusterId;
         private MRUKRoom _room;
 
+        // Scratch, reused every detection. ProcessDetection runs up to 100+ times a second,
+        // so allocating here would be a steady GC drip on device.
+        private readonly Vector2[] _pixelCorners = new Vector2[4];
+        private readonly Vector3[] _roomCorners = new Vector3[4];
+        private readonly List<float> _axisScratch = new List<float>();
+        private readonly List<Cluster> _mergeScratch = new List<Cluster>();
+        private HashSet<string> _ignoredSet;
+
         private void Start()
         {
             if (!EnvironmentRaycastManager.IsSupported)
@@ -135,6 +215,13 @@ namespace RoomScan
             }
         }
 
+        /// <summary>Inspector tweaks mid-scan need the cached lookups thrown away.</summary>
+        private void OnValidate()
+        {
+            _ignoredSet = null;                                     // ignoredLabels changed
+            foreach (var c in _clusters) c.ExtentsDirty = true;     // extentPercentile changed
+        }
+
         // ==================================================================
         // MAIN ENTRY POINT
         // ==================================================================
@@ -153,6 +240,7 @@ namespace RoomScan
         /// </param>
         public void ProcessDetection(string label, float confidence, Rect boxPixels, Pose capturePose)
         {
+            if (IsIgnored(label)) return;
             if (confidence < minConfidence) return;
             if (raycastManager == null) return;   // already logged in Start
 
@@ -170,26 +258,18 @@ namespace RoomScan
             // --- 3. Project the box corners onto the plane at that depth ---
             // This converts pixel extents into metric extents.
             var planeNormal = -centerRay.direction;
-            // Order is irrelevant -- these only feed Encapsulate().
-            var corners = new[]
-            {
-                new Vector2(boxPixels.xMin, boxPixels.yMin),
-                new Vector2(boxPixels.xMax, boxPixels.yMin),
-                new Vector2(boxPixels.xMin, boxPixels.yMax),
-                new Vector2(boxPixels.xMax, boxPixels.yMax),
-            };
+            _pixelCorners[0] = new Vector2(boxPixels.xMin, boxPixels.yMin);
+            _pixelCorners[1] = new Vector2(boxPixels.xMax, boxPixels.yMin);
+            _pixelCorners[2] = new Vector2(boxPixels.xMin, boxPixels.yMax);
+            _pixelCorners[3] = new Vector2(boxPixels.xMax, boxPixels.yMax);
 
-            var worldCorners = new List<Vector3>(4);
-            foreach (var c in corners)
+            for (var i = 0; i < _pixelCorners.Length; i++)
             {
-                if (!TryBuildWorldRay(c, capturePose, out var r)) return;
-                worldCorners.Add(IntersectPlane(r, hitPoint, planeNormal));
+                if (!TryBuildWorldRay(_pixelCorners[i], capturePose, out var r)) return;
+                _roomCorners[i] = WorldToRoom(IntersectPlane(r, hitPoint, planeNormal));
             }
 
-            // --- 4. Convert everything to room-local space ---
-            var localCenter = WorldToRoom(hitPoint);
-            var localCorners = new List<Vector3>(4);
-            foreach (var wc in worldCorners) localCorners.Add(WorldToRoom(wc));
+            var roomCenter = WorldToRoom(hitPoint);
 
             // Yaw the box to face the camera, flattened to horizontal.
             var toCam = capturePose.position - hitPoint;
@@ -198,8 +278,8 @@ namespace RoomScan
                 ? WorldToRoom(Quaternion.LookRotation(toCam.normalized, Vector3.up))
                 : Quaternion.identity;
 
-            // --- 5. Merge into an existing cluster or start a new one ---
-            var cluster = FindCluster(label, localCenter);
+            // --- 4. Merge into an existing cluster or start a new one ---
+            var cluster = FindCluster(label, roomCenter);
             var now = DateTime.UtcNow;
 
             if (cluster == null)
@@ -209,28 +289,29 @@ namespace RoomScan
                     Id = _nextClusterId++,
                     Label = label,
                     BestConfidence = confidence,
-                    Observations = 0,
-                    RoomBounds = new Bounds(localCenter, Vector3.zero),
-                    CentroidSum = Vector3.zero,
-                    Orientation = orientation,
+                    Origin = roomCenter,
+                    Rotation = orientation,
                     FirstSeen = now
                 };
                 _clusters.Add(cluster);
             }
 
-            cluster.Observations++;
-            cluster.CentroidSum += localCenter;
-            cluster.LastSeen = now;
-            if (confidence > cluster.BestConfidence)
-            {
-                cluster.BestConfidence = confidence;
-                cluster.Orientation = orientation;   // trust the clearest view
-            }
+            // --- 5. Record this observation's extent in the CLUSTER's own frame ---
+            var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
 
-            // Growing the bounds across viewpoints is what recovers the THIRD
-            // dimension -- a single 2D box can never give you depth extent.
-            foreach (var lc in localCorners) cluster.RoomBounds.Encapsulate(lc);
-            cluster.RoomBounds.Encapsulate(localCenter);
+            Accumulate(cluster.ToLocal(roomCenter), ref min, ref max);
+            for (var i = 0; i < _roomCorners.Length; i++)
+                Accumulate(cluster.ToLocal(_roomCorners[i]), ref min, ref max);
+
+            cluster.AddObservation(min, max, extentSampleCount);
+            cluster.Observations++;
+            cluster.CentroidSum += roomCenter;
+            cluster.LastSeen = now;
+            if (confidence > cluster.BestConfidence) cluster.BestConfidence = confidence;
+
+            // --- 6. Collapse any split that has since drifted together ---
+            cluster = MergeOverlapping(cluster);
 
             OnClusterChanged?.Invoke(Describe(cluster));
         }
@@ -331,25 +412,211 @@ namespace RoomScan
         /// </summary>
         private ClusterView Describe(Cluster c)
         {
-            var raw = c.RoomBounds.size;
+            var raw = LocalBoundsOf(c);
 
             // A runaway box is almost certainly scattered depth hits, not a real object.
-            var oversized = raw.x > maxObjectSize || raw.y > maxObjectSize || raw.z > maxObjectSize;
+            var oversized = raw.size.x > maxObjectSize ||
+                            raw.size.y > maxObjectSize ||
+                            raw.size.z > maxObjectSize;
 
             var size = new Vector3(
-                Mathf.Max(raw.x, MinBoxExtent),
-                Mathf.Max(raw.y, MinBoxExtent),
-                Mathf.Max(raw.z, MinBoxExtent));
+                Mathf.Max(raw.size.x, MinBoxExtent),
+                Mathf.Max(raw.size.y, MinBoxExtent),
+                Mathf.Max(raw.size.z, MinBoxExtent));
 
             return new ClusterView(
                 c.Id, c.Label, c.BestConfidence, c.Observations,
-                c.RoomBounds.center, c.Orientation, size,
+                c.ToRoom(raw.center), c.Rotation, size,
                 exportable: c.Observations >= minObservations && !oversized);
+        }
+
+        // ==================================================================
+        // SIZE ESTIMATION
+        // ==================================================================
+
+        /// <summary>
+        /// The cluster's box in its own frame, taken as a percentile band over recent
+        /// observations rather than their union. Each observation contributes a quad
+        /// perpendicular to the view ray with no thickness along it, so depth jitter used
+        /// to accumulate straight into the box: a 3 cm keyboard came out 60 cm tall.
+        /// Trimming the tails collapses that back toward the real object.
+        /// </summary>
+        private Bounds LocalBoundsOf(Cluster c)
+        {
+            if (!c.ExtentsDirty) return c.CachedLocal;
+
+            var lower = Vector3.zero;
+            var upper = Vector3.zero;
+            var trim = Mathf.Clamp01(1f - Mathf.Clamp(extentPercentile, 0.2f, 1f)) * 0.5f;
+
+            for (var axis = 0; axis < 3; axis++)
+            {
+                lower[axis] = PercentileOf(c.Mins, axis, trim);
+                upper[axis] = PercentileOf(c.Maxs, axis, 1f - trim);
+
+                // With few, wildly disagreeing observations the two bands can cross.
+                // Collapse to the midpoint rather than emit a negative extent.
+                if (upper[axis] < lower[axis])
+                {
+                    var mid = (upper[axis] + lower[axis]) * 0.5f;
+                    lower[axis] = mid;
+                    upper[axis] = mid;
+                }
+            }
+
+            var bounds = new Bounds();
+            bounds.SetMinMax(lower, upper);
+
+            c.CachedLocal = bounds;
+            c.ExtentsDirty = false;
+            return bounds;
+        }
+
+        private float PercentileOf(List<Vector3> samples, int axis, float t)
+        {
+            if (samples.Count == 0) return 0f;
+
+            _axisScratch.Clear();
+            foreach (var s in samples) _axisScratch.Add(s[axis]);
+            _axisScratch.Sort();
+
+            var index = Mathf.Clamp(Mathf.RoundToInt(t * (_axisScratch.Count - 1)), 0, _axisScratch.Count - 1);
+            return _axisScratch[index];
+        }
+
+        private static void Accumulate(Vector3 point, ref Vector3 min, ref Vector3 max)
+        {
+            min = Vector3.Min(min, point);
+            max = Vector3.Max(max, point);
+        }
+
+        // ==================================================================
+        // MERGING
+        // ==================================================================
+
+        /// <summary>
+        /// Collapses same-label clusters that turned out to be one object. FindCluster
+        /// compares against a running centroid, so two clusters can be seeded apart and
+        /// only later drift together -- that is how one monitor became four. Runs on the
+        /// cluster just touched and returns whichever cluster survived.
+        /// </summary>
+        private Cluster MergeOverlapping(Cluster cluster)
+        {
+            _mergeScratch.Clear();
+
+            foreach (var other in _clusters)
+            {
+                if (ReferenceEquals(other, cluster)) continue;
+                if (!string.Equals(other.Label, cluster.Label, StringComparison.Ordinal)) continue;
+                if (ShouldMerge(cluster, other)) _mergeScratch.Add(other);
+            }
+
+            foreach (var other in _mergeScratch)
+            {
+                // Keep the older cluster so its id, and therefore its live box, persists.
+                var keep = other.Id < cluster.Id ? other : cluster;
+                var drop = ReferenceEquals(keep, other) ? cluster : other;
+
+                Absorb(keep, drop, extentSampleCount);
+                _clusters.Remove(drop);
+                cluster = keep;
+            }
+
+            return cluster;
+        }
+
+        private bool ShouldMerge(Cluster a, Cluster b)
+        {
+            var boxA = RoomBoundsOf(a);
+            var boxB = RoomBoundsOf(b);
+
+            // The same test FindCluster uses, but against the settled box centres instead
+            // of the running centroid -- that alone recovers the centroid-drift splits.
+            if (Vector3.Distance(boxA.center, boxB.center) < mergeRadius) return true;
+
+            if (mergeOverlap <= 0f) return false;
+
+            var overlap = IntersectionVolume(boxA, boxB);
+            if (overlap <= 0f) return false;
+
+            // Measured against the SMALLER box: the duplicate case is a small cluster sitting
+            // inside a larger one, which a symmetric IoU would score too low to catch.
+            var smaller = Mathf.Min(VolumeOf(boxA), VolumeOf(boxB));
+            return smaller > 1e-6f && overlap / smaller >= mergeOverlap;
+        }
+
+        private static void Absorb(Cluster keep, Cluster drop, int capacity)
+        {
+            // Re-express the dropped cluster's observations in the survivor's frame, so the
+            // percentile estimate keeps the evidence rather than just the resulting box.
+            for (var i = 0; i < drop.Mins.Count; i++)
+            {
+                var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+                var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+
+                for (var corner = 0; corner < 8; corner++)
+                {
+                    var local = CornerOf(drop.Mins[i], drop.Maxs[i], corner);
+                    Accumulate(keep.ToLocal(drop.ToRoom(local)), ref min, ref max);
+                }
+
+                keep.AddObservation(min, max, capacity);
+            }
+
+            keep.Observations += drop.Observations;
+            keep.CentroidSum += drop.CentroidSum;
+            keep.BestConfidence = Mathf.Max(keep.BestConfidence, drop.BestConfidence);
+
+            if (drop.FirstSeen < keep.FirstSeen) keep.FirstSeen = drop.FirstSeen;
+            if (drop.LastSeen > keep.LastSeen) keep.LastSeen = drop.LastSeen;
+        }
+
+        /// <summary>The cluster's oriented box as a room-axis-aligned box, for overlap tests.</summary>
+        private Bounds RoomBoundsOf(Cluster c)
+        {
+            var local = LocalBoundsOf(c);
+
+            var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+
+            for (var corner = 0; corner < 8; corner++)
+                Accumulate(c.ToRoom(CornerOf(local.min, local.max, corner)), ref min, ref max);
+
+            var bounds = new Bounds();
+            bounds.SetMinMax(min, max);
+            return bounds;
+        }
+
+        private static Vector3 CornerOf(Vector3 min, Vector3 max, int index)
+            => new Vector3(
+                (index & 1) == 0 ? min.x : max.x,
+                (index & 2) == 0 ? min.y : max.y,
+                (index & 4) == 0 ? min.z : max.z);
+
+        private static float VolumeOf(Bounds b)
+            => Mathf.Max(b.size.x, 0f) * Mathf.Max(b.size.y, 0f) * Mathf.Max(b.size.z, 0f);
+
+        private static float IntersectionVolume(Bounds a, Bounds b)
+        {
+            var min = Vector3.Max(a.min, b.min);
+            var max = Vector3.Min(a.max, b.max);
+            var size = max - min;
+
+            if (size.x <= 0f || size.y <= 0f || size.z <= 0f) return 0f;
+            return size.x * size.y * size.z;
         }
 
         // ==================================================================
         // HELPERS
         // ==================================================================
+
+        private bool IsIgnored(string label)
+        {
+            if (ignoredLabels == null || ignoredLabels.Count == 0) return false;
+
+            _ignoredSet ??= new HashSet<string>(ignoredLabels, StringComparer.OrdinalIgnoreCase);
+            return _ignoredSet.Contains(label);
+        }
 
         /// <summary>
         /// Builds a world-space ray for an image pixel using a stored pose.
@@ -379,7 +646,7 @@ namespace RoomScan
             return ray.origin + ray.direction * t;
         }
 
-        private Cluster FindCluster(string label, Vector3 localCenter)
+        private Cluster FindCluster(string label, Vector3 roomCenter)
         {
             Cluster best = null;
             var bestDist = mergeRadius;
@@ -387,7 +654,7 @@ namespace RoomScan
             foreach (var c in _clusters)
             {
                 if (c.Label != label) continue;
-                var d = Vector3.Distance(c.Centroid, localCenter);
+                var d = Vector3.Distance(c.Centroid, roomCenter);
                 if (d < bestDist) { bestDist = d; best = c; }
             }
             return best;
