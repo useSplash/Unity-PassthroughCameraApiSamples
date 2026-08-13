@@ -2554,6 +2554,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _monoscopic: 0
   _sharpenType: 0
+  _disableRecording: 0
   _enableDynamicResolution: 1
   minDynamicResolutionScale: 1
   maxDynamicResolutionScale: 1
@@ -2625,6 +2626,8 @@ MonoBehaviour:
   SimultaneousHandsAndControllersEnabled: 0
   _readOnlyWideMotionModeHandPosesEnabled: 0
   wideMotionModeHandPosesEnabled: 0
+  _readOnlyFastMotionModeHandPosesEnabled: 0
+  fastMotionModeHandPosesEnabled: 0
   dynamicResolutionVersion: 1
 --- !u!114 &515420516
 MonoBehaviour:
@@ -2782,6 +2785,7 @@ GameObject:
   - component: {fileID: 560997253}
   - component: {fileID: 560997252}
   - component: {fileID: 560997251}
+  - component: {fileID: 560997257}
   m_Layer: 0
   m_Name: '[BuildingBlock] Object Detection'
   m_TagString: Untagged
@@ -2832,6 +2836,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   boundingBoxPrefab: {fileID: 8066889808755201971, guid: 46d0b28dd34412b4c90c82205d36db4f, type: 3}
   showBoundingBoxes: 1
+  labelScale: 0.5
 --- !u!114 &560997254
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2847,6 +2852,7 @@ MonoBehaviour:
   providerAsset: {fileID: 11400000, guid: 93d1d25695ac89f4ab9b670158795a7e, type: 2}
   minConfidence: 0.5
   detectEveryNFrames: 1
+  captureMaxResolution: 640
   onDetectionResponseReceived:
     m_PersistentCalls:
       m_Calls: []
@@ -2895,6 +2901,20 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &560997257
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 560997250}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97910a069bbea5847b9110e5f9410555, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.ObjectDetectionScanBridge
+  recorder: {fileID: 1339185259}
+  verboseLogging: 1
 --- !u!1 &572943844
 GameObject:
   m_ObjectHideFlags: 0
@@ -4867,6 +4887,118 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+--- !u!1 &943424298
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 943424301}
+  - component: {fileID: 943424300}
+  - component: {fileID: 943424299}
+  m_Layer: 0
+  m_Name: '[BuildingBlock] MR Utility Kit'
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &943424299
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 943424298}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: de27d7f2f20024e18898941292d6c164, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <SceneLoadedEvent>k__BackingField:
+    m_PersistentCalls:
+      m_Calls: []
+  <RoomCreatedEvent>k__BackingField:
+    m_PersistentCalls:
+      m_Calls: []
+  <RoomUpdatedEvent>k__BackingField:
+    m_PersistentCalls:
+      m_Calls: []
+  <RoomRemovedEvent>k__BackingField:
+    m_PersistentCalls:
+      m_Calls: []
+  EnableWorldLock: 1
+  TrackingSpaceOffset:
+    e00: 1
+    e01: 0
+    e02: 0
+    e03: 0
+    e10: 0
+    e11: 1
+    e12: 0
+    e13: 0
+    e20: 0
+    e21: 0
+    e22: 1
+    e23: 0
+    e30: 0
+    e31: 0
+    e32: 0
+    e33: 1
+  SceneSettings:
+    <TrackerConfiguration>k__BackingField:
+      <KeyboardTrackingEnabled>k__BackingField: 0
+      <QRCodeTrackingEnabled>k__BackingField: 0
+    <TrackableAdded>k__BackingField:
+      m_PersistentCalls:
+        m_Calls: []
+    <TrackableRemoved>k__BackingField:
+      m_PersistentCalls:
+        m_Calls: []
+    DataSource: 0
+    RoomIndex: -1
+    RoomPrefabs: []
+    SceneJsons: []
+    LoadSceneOnStartup: 1
+    EnableHighFidelityScene: 0
+    SeatWidth: 0.6
+    SceneJson: 
+  _immersiveSceneDebuggerPrefab: {fileID: 7641788235762528044, guid: 950d12aea00a70449b5b7b746f142acf, type: 3}
+--- !u!114 &943424300
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 943424298}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b023183069df224080314a560e6e1ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Meta.XR.BuildingBlocks::Meta.XR.BuildingBlocks.BuildingBlock
+  blockId: d4413f4f-542f-451f-92ee-4801f27d676a
+  instanceId: 2d7d833f-f355-4927-b239-67d59ace10ef
+  version: 1
+  installationRoutineCheckpoint:
+    _installationRoutineId: 
+    _installationVariants: []
+--- !u!4 &943424301
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 943424298}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &949918431
 GameObject:
   m_ObjectHideFlags: 0
@@ -7306,6 +7438,177 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 2017890233}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1339185257
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1339185262}
+  - component: {fileID: 1339185261}
+  - component: {fileID: 1339185260}
+  - component: {fileID: 1339185259}
+  - component: {fileID: 1339185258}
+  - component: {fileID: 1339185263}
+  - component: {fileID: 1339185264}
+  - component: {fileID: 1339185265}
+  m_Layer: 0
+  m_Name: Room Scan
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1339185258
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ff29827195fb8e94abfdde26df22a33b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomScanController
+  recorder: {fileID: 1339185259}
+  rebuilder: {fileID: 1339185264}
+  shellVisualizer: {fileID: 1339185265}
+  exportButton: 1
+  clearButton: 2
+  rebuildButton: 4
+  shellToggleButton: 8
+  statusLogInterval: 2
+--- !u!114 &1339185259
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6856209fb22e11a45a1de02ce3d84d76, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.ObjectScanRecorder
+  raycastManager: {fileID: 1339185261}
+  cameraAccess: {fileID: 217954772}
+  mergeRadius: 0.5
+  minObservations: 5
+  minConfidence: 0
+  mergeOverlap: 0.25
+  ignoredLabels:
+  - person
+  extentPercentile: 0.8
+  extentSampleCount: 64
+  maxRaycastDistance: 6
+  maxObjectSize: 3
+--- !u!114 &1339185260
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 405081095b1c9f649a105f95c33ef45f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomLayoutProbe
+  verboseDump: 1
+--- !u!114 &1339185261
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d8affdff7ba47d892cc734baac9ac71, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: meta.xr.mrutilitykit::Meta.XR.EnvironmentRaycastManager
+  CustomTrackingSpace: {fileID: 0}
+--- !u!114 &1339185263
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c07d911374147cb9627ce5624dedb8e, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.LiveScanVisualizer
+  recorder: {fileID: 1339185259}
+  showPending: 1
+  showLabels: 1
+  pendingColor: {r: 1, g: 0.75, b: 0.2, a: 0.45}
+  confirmedColor: {r: 0.3, g: 1, b: 0.6, a: 0.95}
+  lineWidth: 0.005
+  labelHeightOffset: 0.05
+  lineMaterial: {fileID: 0}
+  refreshInterval: 0.15
+--- !u!114 &1339185264
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14eb07e3b9bbe6348ac2acbd60b0d7ec, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomScanRebuilder
+  boxPrefab: {fileID: 0}
+  lineMaterial: {fileID: 0}
+  lineWidth: 0.005
+  boxColor: {r: 0.3, g: 0.7, b: 1, a: 0.95}
+  showLabels: 1
+  labelHeightOffset: 0.1
+  jsonPath:
+  rebuildOnStart: 0
+--- !u!114 &1339185265
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d829dc46f5354879a4daaa5e075b5a05, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomShellVisualizer
+  showFloor: 1
+  showWalls: 1
+  showCeiling: 0
+  drawOnSceneLoaded: 1
+  floorColor: {r: 0.2, g: 0.9, b: 1, a: 0.9}
+  wallColor: {r: 0.4, g: 0.6, b: 1, a: 0.5}
+  ceilingColor: {r: 0.6, g: 0.6, b: 0.7, a: 0.35}
+  lineWidth: 0.01
+  surfaceOffset: 0.01
+  lineMaterial: {fileID: 0}
+--- !u!4 &1339185262
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1382633687
 GameObject:
@@ -11760,3 +12063,5 @@ SceneRoots:
   - {fileID: 217954774}
   - {fileID: 560997256}
   - {fileID: 949918435}
+  - {fileID: 943424301}
+  - {fileID: 1339185262}
