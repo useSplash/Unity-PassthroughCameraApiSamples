@@ -8024,6 +8024,8 @@ MonoBehaviour:
   agent: {fileID: 1178424962}
   recorder: {fileID: 1339185259}
   scanController: {fileID: 1339185258}
+  liveVisualizer: {fileID: 1339185263}
+  detectionAgent: {fileID: 2128446021}
   placeOnStart: 1
   distanceFromPlayer: 1.2
   heightOffset: -0.25
@@ -13388,7 +13390,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2128446016}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b48c38ab0b17f4243a02271e64b25ccd, type: 3}
   m_Name: 

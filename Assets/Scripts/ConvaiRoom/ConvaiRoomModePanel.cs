@@ -3,6 +3,7 @@ using Convai.Runtime;
 using Convai.Runtime.Components;
 using Convai.Runtime.DynamicContext;
 using Convai.Shared.Actions;
+using Meta.XR.BuildingBlocks.AIBlocks;
 using RoomScan;
 using UnityEngine;
 using UnityEngine.AI;
@@ -57,6 +58,14 @@ namespace ConvaiRoom
 
         public RoomScanController scanController;
 
+        [Tooltip("The growing wireframe boxes drawn while scanning. Cleared in Talk mode " +
+                 "so only the replayed room is left standing.")]
+        public LiveScanVisualizer liveVisualizer;
+
+        [Tooltip("The YOLO runner. Disabled in Talk mode so inference stops at the source " +
+                 "rather than producing detections nobody is looking at.")]
+        public ObjectDetectionAgent detectionAgent;
+
         [Header("Panel placement")]
         [Tooltip("Drop the panel in front of the player on start. Once placed it stays " +
                  "put -- it never follows your head.")]
@@ -109,6 +118,8 @@ namespace ConvaiRoom
             if (agent == null) agent = FindAnyObjectByType<NavMeshAgent>();
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
             if (scanController == null) scanController = FindAnyObjectByType<RoomScanController>();
+            if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
+            if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes
             // are parented to the rebuilder's transform, so sharing a GameObject with it
@@ -321,7 +332,19 @@ namespace ConvaiRoom
             if (recorder != null) recorder.enabled = scanning;
             if (scanController != null) scanController.enabled = scanning;
 
-            Debug.Log($"[ConvaiRoomModePanel] Mode -> {mode}.");
+            // Stop detection at the source rather than just hiding the result. Left
+            // running, the agent costs a YOLO pass per frame in Talk mode for boxes
+            // nobody is looking at.
+            if (detectionAgent != null) detectionAgent.enabled = scanning;
+
+            // LiveScanVisualizer destroys its boxes in OnDisable, so switching it off is
+            // what actually clears the in-progress wireframes. The replayed boxes are
+            // untouched -- they belong to RoomScanRebuilder, not to this.
+            if (liveVisualizer != null) liveVisualizer.enabled = scanning;
+
+            Debug.Log($"[ConvaiRoomModePanel] Mode -> {mode}. " +
+                      $"detection={(detectionAgent != null ? scanning.ToString() : "absent")} " +
+                      $"liveBoxes={(liveVisualizer != null ? scanning.ToString() : "absent")}");
         }
 
         /// <summary>Drops the panel back in front of the player, facing them.</summary>
