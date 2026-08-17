@@ -8024,16 +8024,17 @@ MonoBehaviour:
   agent: {fileID: 0}
   recorder: {fileID: 0}
   scanController: {fileID: 0}
-  followPlayer: 1
+  placeOnStart: 1
   distanceFromPlayer: 1.2
   heightOffset: -0.25
-  followSpeed: 4
-  characterSize: 0.012
+  panelWidth: 0.42
+  clickButton: 2097152
   toggleModeButton: 32768
   commitRescanButton: 8388608
   toggleModeKey: 109
   commitRescanKey: 114
-  startMode: 1
+  recenterKey: 112
+  startMode: 0
 --- !u!4 &1210190839
 Transform:
   m_ObjectHideFlags: 0

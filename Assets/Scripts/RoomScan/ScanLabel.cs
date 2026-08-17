@@ -37,7 +37,7 @@ namespace RoomScan
             return text;
         }
 
-        private static Font BuiltinFont()
+        internal static Font BuiltinFont()
         {
             if (_font != null) return _font;
 
