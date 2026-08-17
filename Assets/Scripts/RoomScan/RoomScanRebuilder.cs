@@ -89,6 +89,17 @@ namespace RoomScan
         {
             Clear();
 
+            // Resolve the room here rather than trusting the scene-loaded callback to have
+            // fired first. Two things race for it: this component's own callback, and
+            // ConvaiRoomBootstrap, which registers its own and additionally gives up after
+            // a timeout. Whichever registers first wins, and component Start() order within
+            // a GameObject is undefined -- so Rebuild could run with _room still null even
+            // though MRUK had the room ready. That silently falls through to raw world
+            // space, which anchors every box to wherever the app happened to start instead
+            // of to the physical room.
+            if (_room == null && MRUK.Instance != null)
+                _room = MRUK.Instance.GetCurrentRoom();
+
             var data = RoomScanIO.Load(string.IsNullOrEmpty(jsonPath) ? null : jsonPath);
             Scan = data;
 
@@ -110,7 +121,18 @@ namespace RoomScan
             foreach (var obj in data.objects)
                 _spawned.Add(new RebuiltObject(obj, SpawnBox(obj)));
 
-            Debug.Log($"[RoomScanRebuilder] Rebuilt {_spawned.Count} boxes.");
+            // Say which frame the boxes landed in. Anchored vs world-space is the difference
+            // between boxes that sit on the real furniture and boxes that drift with wherever
+            // the app was launched, and the two look identical in the log otherwise.
+            if (_room != null)
+                Debug.Log($"[RoomScanRebuilder] Rebuilt {_spawned.Count} boxes, anchored to " +
+                          $"MRUK room {_room.Anchor.Uuid}.");
+            else
+                Debug.LogWarning($"[RoomScanRebuilder] Rebuilt {_spawned.Count} boxes in RAW " +
+                                 $"WORLD SPACE -- no MRUK room was available, so they are " +
+                                 $"positioned relative to wherever the app started, not to the " +
+                                 $"real room. On a headset this means Space Setup has not run, " +
+                                 $"or the scan replayed before MRUK finished loading.");
             OnRebuilt?.Invoke(this);
         }
 
