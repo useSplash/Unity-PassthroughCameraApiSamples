@@ -7988,6 +7988,67 @@ SkinnedMeshRenderer:
     m_Center: {x: 0.00616638, y: -0.029108923, z: -0.018820617}
     m_Extent: {x: 0.033926036, y: 0.042694185, z: 0.05639166}
   m_DirtyAABB: 0
+--- !u!1 &1210190837
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1210190839}
+  - component: {fileID: 1210190838}
+  m_Layer: 0
+  m_Name: Convai Room Mode Panel
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1210190838
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1210190837}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a5bc9ffca7c14290b5c431f5333eab90, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomModePanel
+  rebuilder: {fileID: 0}
+  navMeshBuilder: {fileID: 0}
+  actionConfigBuilder: {fileID: 0}
+  character: {fileID: 0}
+  agent: {fileID: 0}
+  recorder: {fileID: 0}
+  scanController: {fileID: 0}
+  followPlayer: 1
+  distanceFromPlayer: 1.2
+  heightOffset: -0.25
+  followSpeed: 4
+  characterSize: 0.012
+  toggleModeButton: 32768
+  commitRescanButton: 8388608
+  toggleModeKey: 109
+  commitRescanKey: 114
+  startMode: 1
+--- !u!4 &1210190839
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1210190837}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1217294940
 GameObject:
   m_ObjectHideFlags: 0
@@ -8781,6 +8842,7 @@ GameObject:
   - component: {fileID: 1339185268}
   - component: {fileID: 1339185267}
   - component: {fileID: 1339185266}
+  - component: {fileID: 1339185269}
   m_Layer: 0
   m_Name: Room Scan
   m_TagString: Untagged
@@ -8998,6 +9060,34 @@ MonoBehaviour:
   minObstacleHeight: 0.1
   wallThickness: 0.2
   verboseLogging: 1
+--- !u!114 &1339185269
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 162fce3f29a945541a09baf697c61ba6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomDebugConsole
+  player: {fileID: 0}
+  actionConfigBuilder: {fileID: 0}
+  agent: {fileID: 0}
+  prompts:
+  - key: 49
+    text: What do you see in this room?
+  - key: 50
+    text: Walk to the chair.
+  - key: 51
+    text: Look at the laptop.
+  - key: 52
+    text: What is next to the keyboard?
+  cycleTargetKey: 9
+  pathToTargetKey: 8
+  reportStateKey: 96
+  editorAndDevBuildsOnly: 1
 --- !u!1 &1382633687
 GameObject:
   m_ObjectHideFlags: 0
@@ -13576,3 +13666,4 @@ SceneRoots:
   - {fileID: 1339185262}
   - {fileID: 502312527}
   - {fileID: 1800341006}
+  - {fileID: 1210190839}
