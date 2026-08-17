@@ -8,6 +8,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Camera API Test.unity
     guid: 447fd4cb311a7af4cbd04555d5a4e4dd
+  - enabled: 1
+    path: Assets/Scenes/Convai Room.unity
+    guid: 95e9998ed1a5b6b4bb489c4dfda185fd
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: 5a4553a81c425ee4bb1264a72e70c1bc, type: 2}
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}

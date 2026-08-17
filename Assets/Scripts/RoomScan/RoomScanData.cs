@@ -82,6 +82,18 @@ namespace RoomScan
         public static string DefaultPath =>
             Path.Combine(Application.persistentDataPath, DefaultFileName);
 
+        /// <summary>
+        /// Editor-side fallback. persistentDataPath is empty on a desktop that has never
+        /// run the scanner, so drop an adb-pulled room_scan.json in StreamingAssets to
+        /// iterate on replay scenes without a headset.
+        ///
+        /// On Android this resolves to a jar: URL inside the APK, which File.Exists
+        /// reports as missing -- so the fallback silently does nothing on device, which
+        /// is exactly what we want. Never rely on it at runtime.
+        /// </summary>
+        public static string StreamingAssetsPath =>
+            Path.Combine(Application.streamingAssetsPath, DefaultFileName);
+
         public static void Save(RoomScanFile data, string path = null)
         {
             path ??= DefaultPath;
@@ -95,12 +107,24 @@ namespace RoomScan
 
         public static RoomScanFile Load(string path = null)
         {
+            var explicitPath = !string.IsNullOrEmpty(path);
             path ??= DefaultPath;
 
             if (!File.Exists(path))
             {
-                Debug.LogWarning($"[RoomScanIO] No scan file at {path}");
-                return null;
+                // Only fall back when the caller did not name a specific file. An explicit
+                // path that is missing is a mistake worth surfacing, not one to paper over.
+                if (!explicitPath && File.Exists(StreamingAssetsPath))
+                {
+                    path = StreamingAssetsPath;
+                    Debug.Log($"[RoomScanIO] No scan in persistentDataPath; using the " +
+                              $"StreamingAssets copy at {path}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[RoomScanIO] No scan file at {path}");
+                    return null;
+                }
             }
 
             var data = JsonUtility.FromJson<RoomScanFile>(File.ReadAllText(path));

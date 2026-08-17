@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Meta.XR.MRUtilityKit;
@@ -8,9 +9,26 @@ namespace RoomScan
     /// Reads room_scan.json back and rebuilds wireframe bounding boxes in the
     /// room. Waits for MRUK so the room anchor exists before converting
     /// room-local coordinates back to world space.
+    ///
+    /// Downstream systems (navmesh baking, Convai action targets) consume
+    /// <see cref="Rebuilt"/> rather than re-reading the file, so world placement
+    /// is computed exactly once.
     /// </summary>
     public class RoomScanRebuilder : MonoBehaviour
     {
+        /// <summary>One scanned object paired with the world-space proxy spawned for it.</summary>
+        public readonly struct RebuiltObject
+        {
+            public readonly ScannedObject Data;
+            public readonly GameObject Proxy;
+
+            public RebuiltObject(ScannedObject data, GameObject proxy)
+            {
+                Data = data;
+                Proxy = proxy;
+            }
+        }
+
         [Header("Visuals")]
         [Tooltip("Optional. If empty, a runtime WireBox is used -- same look as the live scan.")]
         public GameObject boxPrefab;
@@ -32,7 +50,22 @@ namespace RoomScan
         public bool rebuildOnStart = true;
 
         private MRUKRoom _room;
-        private readonly List<GameObject> _spawned = new List<GameObject>();
+        private readonly List<RebuiltObject> _spawned = new List<RebuiltObject>();
+
+        /// <summary>Raised after every <see cref="Rebuild"/>, including one that spawned nothing.</summary>
+        public event Action<RoomScanRebuilder> OnRebuilt;
+
+        /// <summary>The scan behind the current proxies. Null until a successful Rebuild.</summary>
+        public RoomScanFile Scan { get; private set; }
+
+        /// <summary>Proxies from the last Rebuild, in file order.</summary>
+        public IReadOnlyList<RebuiltObject> Rebuilt => _spawned;
+
+        /// <summary>
+        /// The MRUK room the scan was replayed into, or null when MRUK is absent --
+        /// in which case room-local coordinates were treated as world space.
+        /// </summary>
+        public MRUKRoom Room => _room;
 
         private void Start()
         {
@@ -57,7 +90,15 @@ namespace RoomScan
             Clear();
 
             var data = RoomScanIO.Load(string.IsNullOrEmpty(jsonPath) ? null : jsonPath);
-            if (data == null) return;
+            Scan = data;
+
+            if (data == null)
+            {
+                // Still notify: listeners waiting to bake or connect must not hang
+                // just because there is no scan on this device yet.
+                OnRebuilt?.Invoke(this);
+                return;
+            }
 
             if (_room != null && data.originAnchorUuid != "none" &&
                 data.originAnchorUuid != _room.Anchor.Uuid.ToString())
@@ -67,9 +108,10 @@ namespace RoomScan
             }
 
             foreach (var obj in data.objects)
-                _spawned.Add(SpawnBox(obj));
+                _spawned.Add(new RebuiltObject(obj, SpawnBox(obj)));
 
             Debug.Log($"[RoomScanRebuilder] Rebuilt {_spawned.Count} boxes.");
+            OnRebuilt?.Invoke(this);
         }
 
         private GameObject SpawnBox(ScannedObject obj)
@@ -120,14 +162,19 @@ namespace RoomScan
 
         public void Clear()
         {
-            foreach (var go in _spawned) if (go != null) Destroy(go);
+            foreach (var entry in _spawned) if (entry.Proxy != null) Destroy(entry.Proxy);
             _spawned.Clear();
         }
 
-        private Vector3 RoomToWorld(Vector3 local)
+        /// <summary>
+        /// Room-local to world. Falls through unchanged when MRUK is absent, matching
+        /// the recorder's own fallback so a scan captured without a room still replays
+        /// self-consistently (just not anchored to anything real).
+        /// </summary>
+        public Vector3 RoomToWorld(Vector3 local)
             => _room == null ? local : _room.transform.TransformPoint(local);
 
-        private Quaternion RoomToWorld(Quaternion local)
+        public Quaternion RoomToWorld(Quaternion local)
             => _room == null ? local : _room.transform.rotation * local;
     }
 
