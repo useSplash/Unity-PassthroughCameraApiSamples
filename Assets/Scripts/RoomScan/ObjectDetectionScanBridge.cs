@@ -33,6 +33,19 @@ namespace RoomScan
         /// <summary>Most recent capture pose, for debug overlays.</summary>
         public Pose LastCapturePose => _capturePose;
 
+        /// <summary>
+        /// Detection batches received from the agent. Zero means YOLO is not producing
+        /// anything at all, which is a different fault from detections that arrive and
+        /// then fail to place.
+        /// </summary>
+        public int BatchesSeen { get; private set; }
+
+        /// <summary>Individual boxes actually handed to the recorder.</summary>
+        public int DetectionsForwarded { get; private set; }
+
+        /// <summary>True once a depth frame has supplied a capture pose.</summary>
+        public bool HasCapturePose => _hasPose;
+
         private void Awake()
         {
             _agent = GetComponent<ObjectDetectionAgent>();
@@ -76,6 +89,10 @@ namespace RoomScan
 
         private void HandleBatch(List<BoxData> batch)
         {
+            // Counted before the guards below, so "batches arriving but nothing forwarded"
+            // stays distinguishable from "the agent never fired at all".
+            BatchesSeen++;
+
             if (recorder == null) return;
 
             if (!_hasPose)
@@ -107,6 +124,7 @@ namespace RoomScan
                               $"capturePos={_capturePose.position} " +
                               $"captureRot={_capturePose.rotation.eulerAngles}");
 
+                DetectionsForwarded++;
                 recorder.ProcessDetection(className, confidence, boxPixels, _capturePose);
             }
         }

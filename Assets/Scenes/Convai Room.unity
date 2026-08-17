@@ -7316,7 +7316,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1178424923}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 1, z: 0, w: -0.00000004371139}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 1.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -8017,13 +8017,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a5bc9ffca7c14290b5c431f5333eab90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomModePanel
-  rebuilder: {fileID: 0}
-  navMeshBuilder: {fileID: 0}
-  actionConfigBuilder: {fileID: 0}
-  character: {fileID: 0}
-  agent: {fileID: 0}
-  recorder: {fileID: 0}
-  scanController: {fileID: 0}
+  rebuilder: {fileID: 1339185264}
+  navMeshBuilder: {fileID: 1339185268}
+  actionConfigBuilder: {fileID: 1339185267}
+  character: {fileID: 1178424928}
+  agent: {fileID: 1178424962}
+  recorder: {fileID: 1339185259}
+  scanController: {fileID: 1339185258}
   placeOnStart: 1
   distanceFromPlayer: 1.2
   heightOffset: -0.25
@@ -8031,9 +8031,6 @@ MonoBehaviour:
   clickButton: 2097152
   toggleModeButton: 32768
   commitRescanButton: 8388608
-  toggleModeKey: 109
-  commitRescanKey: 114
-  recenterKey: 112
   startMode: 0
 --- !u!4 &1210190839
 Transform:
@@ -8044,7 +8041,7 @@ Transform:
   m_GameObject: {fileID: 1210190837}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 1, y: 0.5, z: 1}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -9070,25 +9067,18 @@ MonoBehaviour:
   m_GameObject: {fileID: 1339185257}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 162fce3f29a945541a09baf697c61ba6, type: 3}
+  m_Script: {fileID: 11500000, guid: cda993c84c75a9248acc19d890a1af19, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomDebugConsole
-  player: {fileID: 0}
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomHealthProbe
+  intervalSeconds: 5
+  logOnlyOnChange: 0
+  bridge: {fileID: 0}
+  recorder: {fileID: 0}
+  rebuilder: {fileID: 0}
+  navMeshBuilder: {fileID: 0}
   actionConfigBuilder: {fileID: 0}
+  character: {fileID: 0}
   agent: {fileID: 0}
-  prompts:
-  - key: 49
-    text: What do you see in this room?
-  - key: 50
-    text: Walk to the chair.
-  - key: 51
-    text: Look at the laptop.
-  - key: 52
-    text: What is next to the keyboard?
-  cycleTargetKey: 9
-  pathToTargetKey: 8
-  reportStateKey: 96
-  editorAndDevBuildsOnly: 1
 --- !u!1 &1382633687
 GameObject:
   m_ObjectHideFlags: 0
@@ -13326,6 +13316,150 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1700415306}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2128446016
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2128446023}
+  - component: {fileID: 2128446022}
+  - component: {fileID: 2128446021}
+  - component: {fileID: 2128446020}
+  - component: {fileID: 2128446019}
+  - component: {fileID: 2128446018}
+  - component: {fileID: 2128446017}
+  m_Layer: 0
+  m_Name: '[BuildingBlock] Object Detection'
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2128446017
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 97910a069bbea5847b9110e5f9410555, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.ObjectDetectionScanBridge
+  recorder: {fileID: 1339185259}
+  verboseLogging: 1
+--- !u!114 &2128446018
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d6b96759ad368794da78dff0b7f67f0e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cameraRig: {fileID: 0}
+--- !u!114 &2128446019
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 71a155ece80369d4e99bdaf5e59169b5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _occlusionShadersMode: 2
+  _removeHands: 0
+  CustomTrackingSpace: {fileID: 0}
+  <MaskMeshFilters>k__BackingField: []
+--- !u!114 &2128446020
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b48c38ab0b17f4243a02271e64b25ccd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  boundingBoxPrefab: {fileID: 8066889808755201971, guid: 46d0b28dd34412b4c90c82205d36db4f, type: 3}
+  showBoundingBoxes: 1
+  labelScale: 0.5
+--- !u!114 &2128446021
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95c190a9246005a43a268bc4dc0564da, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  providerAsset: {fileID: 11400000, guid: 93d1d25695ac89f4ab9b670158795a7e, type: 2}
+  minConfidence: 0.5
+  detectEveryNFrames: 1
+  captureMaxResolution: 640
+  onDetectionResponseReceived:
+    m_PersistentCalls:
+      m_Calls: []
+--- !u!114 &2128446022
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b023183069df224080314a560e6e1ff, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Meta.XR.BuildingBlocks::Meta.XR.BuildingBlocks.BuildingBlock
+  blockId: 6fe30b32-9c96-40d7-bf3b-17df4f960bf4
+  instanceId: 6c52e91a-aebe-4071-b09d-2d9457477183
+  version: 1
+  installationRoutineCheckpoint:
+    _installationRoutineId: 7123b6da-f85f-47f4-be89-4f000efc24e8
+    _installationVariants:
+    - _memberName: providerAssetSelection
+      _value: 
+    - _memberName: inferenceType
+      _value: '{"value__":4}'
+    - _memberName: modelProvider
+      _value: UnityInferenceEngine
+    - _memberName: includeVisualization
+      _value: '{}'
+    - _memberName: includePassthrough
+      _value: '{}'
+    - _memberName: includeDebuggingTools
+      _value: '{}'
+--- !u!4 &2128446023
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2128446016}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2128811366
 GameObject:
   m_ObjectHideFlags: 0
@@ -13664,6 +13798,7 @@ SceneRoots:
   - {fileID: 768050875}
   - {fileID: 217954774}
   - {fileID: 943424301}
+  - {fileID: 2128446023}
   - {fileID: 1339185262}
   - {fileID: 502312527}
   - {fileID: 1800341006}

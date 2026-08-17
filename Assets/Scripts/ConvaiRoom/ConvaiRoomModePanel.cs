@@ -78,9 +78,6 @@ namespace ConvaiRoom
         public OVRInput.Button toggleModeButton = OVRInput.Button.PrimaryThumbstick;
 
         public OVRInput.Button commitRescanButton = OVRInput.Button.SecondaryThumbstick;
-        public KeyCode toggleModeKey = KeyCode.M;
-        public KeyCode commitRescanKey = KeyCode.R;
-        public KeyCode recenterKey = KeyCode.P;
 
         [Header("Startup")]
         public Mode startMode = Mode.Scan;
@@ -137,13 +134,11 @@ namespace ConvaiRoom
 
         private void Update()
         {
-            if (Input.GetKeyDown(toggleModeKey) || OVRInput.GetDown(toggleModeButton))
+            if (OVRInput.GetDown(toggleModeButton))
                 Apply(Current == Mode.Scan ? Mode.Talk : Mode.Scan);
 
-            if (Input.GetKeyDown(commitRescanKey) || OVRInput.GetDown(commitRescanButton))
+            if (OVRInput.GetDown(commitRescanButton))
                 CommitRescan();
-
-            if (Input.GetKeyDown(recenterKey)) Recenter();
 
             Redraw();
         }
