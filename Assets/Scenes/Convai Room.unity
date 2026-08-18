@@ -2084,11 +2084,6 @@ Transform:
   - {fileID: 2136293319}
   m_Father: {fileID: 2128811367}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!95 &390279778 stripped
-Animator:
-  m_CorrespondingSourceObject: {fileID: 4898812704511245053, guid: ec4b68d8903db544783279ca4cefc6c0, type: 3}
-  m_PrefabInstance: {fileID: 714878415}
-  m_PrefabAsset: {fileID: 0}
 --- !u!1 &399754597
 GameObject:
   m_ObjectHideFlags: 0
@@ -7287,20 +7282,14 @@ GameObject:
   - component: {fileID: 1178424927}
   - component: {fileID: 1178424926}
   - component: {fileID: 1178424925}
-  - component: {fileID: 1178424937}
   - component: {fileID: 1178424955}
-  - component: {fileID: 1178424934}
-  - component: {fileID: 1178424933}
   - component: {fileID: 1178424936}
-  - component: {fileID: 1178424952}
-  - component: {fileID: 1178424953}
   - component: {fileID: 1178424954}
   - component: {fileID: 1178424959}
   - component: {fileID: 1178424958}
   - component: {fileID: 1178424957}
   - component: {fileID: 1178424962}
-  - component: {fileID: 1178424961}
-  - component: {fileID: 1178424960}
+  - component: {fileID: 1178424963}
   m_Layer: 0
   m_Name: Convai Character
   m_TagString: Untagged
@@ -7497,32 +7486,6 @@ MonoBehaviour:
   _initialDynamicInfoText: 
   _initialDynamicInfoKeepInContext: 0
   _characterReadyTimeoutSeconds: 30
---- !u!114 &1178424933
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c5d6d55c18780a74d83f33656823650f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Convai.Modules.Gaze::Convai.Modules.Gaze.Components.HeadLookActuator
-  profile: {fileID: 11400000, guid: 13e3a78fdcfd04249b1168d75f8f80fa, type: 2}
---- !u!114 &1178424934
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3e2483b2121a56b46ba3a36966de570a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Convai.Modules.Gaze::Convai.Modules.Gaze.Components.EyeGazeActuator
-  profile: {fileID: 11400000, guid: 21154a28f0d63134e93d07ff9d073124, type: 2}
 --- !u!114 &1178424936
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7540,85 +7503,13 @@ MonoBehaviour:
   lockEmotion: 0
   lockedEmotionLabel: joy
   lockedIntensity: 1
---- !u!114 &1178424937
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 47995b9ef8ff8fe47a4e39948222df91, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Convai.Modules.Attention::Convai.Modules.Attention.Components.ConvaiAttentionController
-  profile: {fileID: 11400000, guid: c7df78fe03d53fd4c8223b7e31231718, type: 2}
-  discoverProvidersInHierarchy: 1
-  autoCreateDefaultFocusProvider: 1
---- !u!114 &1178424952
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c0b1ae7fa1d0412c0ae1c8b8e95da002, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  profile: {fileID: 0}
-  _library: {fileID: 11400000, guid: 197e5425e45942e08d817476c7b87dec, type: 2}
-  _config: {fileID: 11400000, guid: d3a1ae7fa1d0412c0ae1c8b8e95d1d01, type: 2}
-  _characterGender: 0
-  _animatorOverride: {fileID: 390279778}
-  _contract: {fileID: 11400000, guid: 8f4c9a2e1d0b4c6f9a8e7d6c5b4a3920, type: 2}
-  _baseIdleLayerIndex: 0
-  _idleOverlayLayerIndex: 1
-  _bodyTalkLayerIndex: 2
-  _headTalkLayerIndex: 3
-  _baseIdleStateName: BaseIdle
-  _idleOverlayStateA: IdleOverlay_A
-  _idleOverlayStateB: IdleOverlay_B
-  _bodyTalkStateA: BodyTalk_A
-  _bodyTalkStateB: BodyTalk_B
-  _headTalkStateA: HeadTalk_A
-  _headTalkStateB: HeadTalk_B
-  _basePlaceholderName: ConvaiDialogueSlot_BaseIdle
-  _idleOverlayPlaceholderA: ConvaiDialogueSlot_IdleOverlayA
-  _idleOverlayPlaceholderB: ConvaiDialogueSlot_IdleOverlayB
-  _bodyTalkPlaceholderA: ConvaiDialogueSlot_BodyTalkA
-  _bodyTalkPlaceholderB: ConvaiDialogueSlot_BodyTalkB
-  _headTalkPlaceholderA: ConvaiDialogueSlot_HeadTalkA
-  _headTalkPlaceholderB: ConvaiDialogueSlot_HeadTalkB
-  _foundationIdleClip: {fileID: 7400000, guid: 5312decf6d4c08841be2faa523bd81b0, type: 2}
-  _autoCreateConversationFlow: 1
---- !u!114 &1178424953
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 559333f0d5982d146b8af376870d8af1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Convai.Modules.FacialAnimation::Convai.Modules.FacialAnimation.Components.BakedFacialClipSource
-  profile: {fileID: 11400000, guid: 9d86b8e2190e5c04e8bfc02c486018f8, type: 2}
-  playbackSpeed: 0.7
-  globalWeight: 0.3
-  targetMeshes:
-  - {fileID: 714878426}
-  - {fileID: 714878420}
-  - {fileID: 714878424}
-  - {fileID: 714878423}
-  - {fileID: 714878421}
-  - {fileID: 714878422}
-  - {fileID: 714878425}
-  - {fileID: 714878418}
-  - {fileID: 714878419}
-  - {fileID: 714878417}
+  initialMoodLabel: 
+  initialMoodIntensity: 0.45
+  actionSuccessMoodLabel: joy
+  actionFailureMoodLabel: sadness
+  actionMoodIntensity: 0.3
+  actionMoodHoldSeconds: 2.5
+  actionMoodTransitionSeconds: 1
 --- !u!114 &1178424954
 MonoBehaviour:
   m_ObjectHideFlags: 2
@@ -7672,6 +7563,7 @@ MonoBehaviour:
   _lastStepSucceeded: 
   _lastUnhandledStep: 
   _lastStepCompleted: 
+  _lastFailedStepDetail: 
   _lastFailureReason: 
 --- !u!114 &1178424958
 MonoBehaviour:
@@ -7688,6 +7580,9 @@ MonoBehaviour:
   _batchPolicy: 0
   _failurePolicy: 0
   _speechGateTimeoutSeconds: 2
+  _defaultStepTimeoutSeconds: 60
+  _cancelOnUserSpeech: 0
+  _enablePerformanceReactions: 1
   _onBatchStarted:
     m_PersistentCalls:
       m_Calls: []
@@ -7724,56 +7619,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75ea93e2d9a9424eb04daef953ff5433, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Components.ConvaiActionConfigSource
+  _actionSets: []
   _definitions:
   - ActionName: Move To
     Description: Walk over to the given object in the room.
     Parameters: []
     TargetRequirement: 1
-    Executor: {fileID: 1178424961}
+    Executor: {fileID: 0}
+    ExecutorTypeHint: 
     TimeoutSeconds: 0
     FailurePolicyOverride: 0
+    AnswerDelivery: 0
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
+    _disabled: 0
+    _category: 
   - ActionName: Look At
     Description: Turn to face the given object in the room.
     Parameters: []
     TargetRequirement: 1
-    Executor: {fileID: 1178424960}
+    Executor: {fileID: 0}
+    ExecutorTypeHint: 
     TimeoutSeconds: 0
     FailurePolicyOverride: 0
+    AnswerDelivery: 0
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
+    _disabled: 0
+    _category: 
   _objects: []
   _characters: []
   _initialAttentionObject: 
---- !u!114 &1178424960
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 453cead4f92c64f6e95a0680eb830467, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Actions.LookAtTargetActionExecutor
-  _rotateRoot: {fileID: 1178424924}
-  _duration: 0.5
---- !u!114 &1178424961
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1178424923}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b98a318fc635f45fb996790129ad6b3f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Convai.Sample::Convai.Sample.Behaviors.NavMeshMoveToActionExecutor
-  _agent: {fileID: 1178424962}
-  _stoppingDistance: 0.5
+  _actionExecutionMode: 0
+  _behaviorHost: {fileID: 0}
 --- !u!195 &1178424962
 NavMeshAgent:
   m_ObjectHideFlags: 0
@@ -7796,6 +7674,18 @@ NavMeshAgent:
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
+--- !u!114 &1178424963
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1178424923}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 69b69ccbd1d340059116e92038f34ac9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Convai.Modules.Emotion::Convai.Modules.Emotion.Components.MoodCommandHandlerAdapter
 --- !u!1 &1181039813
 GameObject:
   m_ObjectHideFlags: 0
@@ -8017,23 +7907,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a5bc9ffca7c14290b5c431f5333eab90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomModePanel
-  rebuilder: {fileID: 1339185264}
-  navMeshBuilder: {fileID: 1339185268}
-  actionConfigBuilder: {fileID: 1339185267}
-  character: {fileID: 1178424928}
-  agent: {fileID: 1178424962}
   recorder: {fileID: 1339185259}
-  scanController: {fileID: 1339185258}
-  liveVisualizer: {fileID: 1339185263}
-  detectionAgent: {fileID: 2128446021}
   placeOnStart: 1
   distanceFromPlayer: 1.2
   heightOffset: -0.25
   panelWidth: 0.42
+  mrukTimeoutSeconds: 5
   clickButton: 2097152
-  toggleModeButton: 32768
-  commitRescanButton: 8388608
-  startMode: 0
+  countsRefreshInterval: 0.25
+  diskRefreshInterval: 1
 --- !u!4 &1210190839
 Transform:
   m_ObjectHideFlags: 0
@@ -9011,12 +8893,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomBootstrap
   rebuilder: {fileID: 1339185264}
-  navMeshBuilder: {fileID: 1339185268}
   roomManager: {fileID: 502312525}
-  actionConfigBuilder: {fileID: 1339185267}
-  agent: {fileID: 1178424962}
-  spawnDistanceFromPlayer: 1.5
-  spawnSearchRadius: 3
   mrukTimeoutSeconds: 5
   verboseLogging: 1
 --- !u!114 &1339185267
@@ -9077,10 +8954,7 @@ MonoBehaviour:
   bridge: {fileID: 0}
   recorder: {fileID: 0}
   rebuilder: {fileID: 0}
-  navMeshBuilder: {fileID: 0}
-  actionConfigBuilder: {fileID: 0}
   character: {fileID: 0}
-  agent: {fileID: 0}
 --- !u!1 &1382633687
 GameObject:
   m_ObjectHideFlags: 0
