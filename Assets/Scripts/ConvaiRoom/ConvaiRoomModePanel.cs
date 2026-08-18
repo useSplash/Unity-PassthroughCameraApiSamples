@@ -1,6 +1,9 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
 using System.Text;
-using Convai.Runtime.Components;
-using Meta.XR.BuildingBlocks.AIBlocks;
+using Meta.XR.MRUtilityKit;
 using RoomScan;
 using UnityEngine;
 using UnityEngine.Events;
@@ -10,57 +13,42 @@ using UnityEngine.UI;
 namespace ConvaiRoom
 {
     /// <summary>
-    /// A world-space control panel for switching between scanning the room and talking to
-    /// the character, without leaving the scene.
+    /// The phase 1 control panel: a world-space readout of what the room scan has picked up
+    /// so far, plus a button to write it to disk.
     ///
-    /// One scene rather than two on purpose. A scene load re-initialises MRUK, which means
-    /// re-running the anchor race that puts replayed boxes in raw world space, and it tears
-    /// down the Convai session so every switch costs a reconnect. Staying put keeps the
-    /// room anchored once and the session alive.
+    /// The class name is historical -- this was the Scan/Talk mode panel before the flow was
+    /// split into phases. It keeps the old name so the scene's script GUID reference survives
+    /// a rewrite; the rename is a separate commit. Log lines carry <see cref="Tag"/> so greps
+    /// do not have to change when that happens.
     ///
-    /// The panel is placed once and then left alone. An earlier version followed the head
-    /// every frame, which is unreadable to look at and makes the panel impossible to aim
-    /// at with a laser -- it moves with the thing you are aiming. Use Recenter to call it
-    /// back instead.
-    ///
-    /// Scan mode hides the character by switching off its renderers rather than
-    /// deactivating the GameObject -- the Convai components on it own the live session, and
-    /// disabling them mid-call is a good way to lose it.
+    /// The panel is placed once, when MRUK reports its scene, and then left alone. An earlier
+    /// version followed the head every frame, which is unreadable to look at and makes the
+    /// panel impossible to aim at with a laser -- it moves with the thing you are aiming.
+    /// Use Recenter to call it back instead.
     /// </summary>
     public class ConvaiRoomModePanel : MonoBehaviour
     {
-        public enum Mode
-        {
-            Scan,
-            Talk
-        }
+        private const string Tag = "[ScanPanel]";
 
         // The canvas is authored in these units and then scaled down to metres, so the
         // layout numbers below read like ordinary UI pixels instead of millimetres.
         private const float CanvasWidth = 420f;
         private const float CanvasHeight = 340f;
 
-        [Header("Wiring (left empty, these are found in the scene)")]
-        public RoomScanRebuilder rebuilder;
-        public ConvaiCharacter character;
+        /// <summary>What the scan file on disk is currently worth.</summary>
+        private enum DiskState
+        {
+            Missing,
+            Stale,
+            Ready
+        }
 
-        [Tooltip("Live scanning components, switched off in Talk mode so they stop " +
-                 "consuming depth and GPU while you are only holding a conversation.")]
+        [Header("Wiring (left empty, this is found in the scene)")]
         public ObjectScanRecorder recorder;
 
-        public RoomScanController scanController;
-
-        [Tooltip("The growing wireframe boxes drawn while scanning. Cleared in Talk mode " +
-                 "so only the replayed room is left standing.")]
-        public LiveScanVisualizer liveVisualizer;
-
-        [Tooltip("The YOLO runner. Disabled in Talk mode so inference stops at the source " +
-                 "rather than producing detections nobody is looking at.")]
-        public ObjectDetectionAgent detectionAgent;
-
         [Header("Panel placement")]
-        [Tooltip("Drop the panel in front of the player on start. Once placed it stays " +
-                 "put -- it never follows your head.")]
+        [Tooltip("Drop the panel in front of the player once MRUK reports its scene. Once " +
+                 "placed it stays put -- it never follows your head.")]
         public bool placeOnStart = true;
 
         public float distanceFromPlayer = 1.2f;
@@ -69,77 +57,422 @@ namespace ConvaiRoom
         [Tooltip("Physical width of the panel in metres. Height follows the same scale.")]
         public float panelWidth = 0.42f;
 
+        [Tooltip("How long to wait for MRUK before placing the panel anyway. Lets the scene " +
+                 "run in the Editor with no headset attached.")]
+        public float mrukTimeoutSeconds = 5f;
+
         [Header("Input")]
         [Tooltip("Clicks a panel button with the laser. The index trigger rather than A, " +
-                 "because RoomScanController already owns A/B/X in Scan mode. Secondary is " +
-                 "the right hand on Touch controllers, matching the hand the laser is on.")]
+                 "because RoomScanController already owns A/B/X/Y. Secondary is the right " +
+                 "hand on Touch controllers, matching the hand the laser is on.")]
         public OVRInput.Button clickButton = OVRInput.Button.SecondaryIndexTrigger;
 
-        [Tooltip("Shortcut for swapping mode without aiming at the panel.")]
-        public OVRInput.Button toggleModeButton = OVRInput.Button.PrimaryThumbstick;
+        [Header("Refresh")]
+        [Tooltip("Seconds between cluster-count polls.")]
+        public float countsRefreshInterval = 0.25f;
 
-        public OVRInput.Button commitRescanButton = OVRInput.Button.SecondaryThumbstick;
+        [Tooltip("Seconds between scan-file checks on disk.")]
+        public float diskRefreshInterval = 1f;
 
-        [Header("Startup")]
-        public Mode startMode = Mode.Scan;
-
-        /// <summary>The mode currently being displayed.</summary>
-        public Mode Current { get; private set; }
-
-        private static readonly Color ActiveButton = new Color(0.15f, 0.55f, 0.75f, 0.95f);
-        private static readonly Color InactiveButton = new Color(0.18f, 0.20f, 0.24f, 0.90f);
         private static readonly Color ActionButton = new Color(0.22f, 0.28f, 0.34f, 0.92f);
+        private static readonly Color LockedButton = new Color(0.16f, 0.16f, 0.18f, 0.75f);
+        private static readonly Color LockedLabel = new Color(0.55f, 0.55f, 0.58f);
 
-        private Text _statusText;
         private Text _titleText;
-        private Image _scanButtonImage;
-        private Image _talkButtonImage;
+        private Text _countsText;
+        private Text _statusText;
+        private GameObject _canvasGo;
+        private OVRRaycaster _raycaster;
         private ConvaiRoomLaserCursor _cursor;
 
         private bool _canMove = true;
+        private bool _hasSpawned;
+
+        // Counts. Both come from one snapshot pass so they can never disagree.
+        private readonly List<ObjectScanRecorder.ClusterView> _snapshot =
+            new List<ObjectScanRecorder.ClusterView>();
+
+        private int _ready;
+        private int _tracked;
+        private float _nextCountsPoll;
+
+        // Disk.
+        private DiskState _diskState = DiskState.Missing;
+        private long _diskBytes;
+        private int _diskObjects = -1;          // -1 = not known
+        private DateTime _diskWriteUtc;
+        private DateTime? _savedThisSessionUtc;
+        private DateTime? _clearedAtUtc;
+        private float _nextDiskPoll;
+
         private string _lastAction = "none yet";
+        private float _lastActionExpiresAt = float.PositiveInfinity;
+
+        // Redraw is gated: the text mesh is rebuilt when something displayed actually
+        // changed, and otherwise at most once a second so the "2m ago" age still ticks.
+        private bool _dirty = true;
+        private float _nextForcedRedraw;
+
         private readonly StringBuilder _builder = new StringBuilder();
 
         private void Awake()
         {
-            if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
-            if (character == null) character = FindAnyObjectByType<ConvaiCharacter>();
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
-            if (scanController == null) scanController = FindAnyObjectByType<RoomScanController>();
-            if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
-            if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
 
-            // The panel owns its transform and moves it on every recenter. Rebuilt boxes
-            // are parented to the rebuilder's transform, so sharing a GameObject with it
-            // would drag the entire replayed room along -- which looks exactly like an
-            // anchoring bug and is miserable to diagnose on a headset.
+            // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
+            // parented to the rebuilder's transform, so sharing a GameObject with it would
+            // drag the entire replayed room along -- which looks exactly like an anchoring
+            // bug and is miserable to diagnose on a headset.
             if (GetComponent<RoomScanRebuilder>() != null)
             {
-                Debug.LogError("[ConvaiRoomModePanel] This is on the same GameObject as the " +
-                               "RoomScanRebuilder, and moving the panel would move every " +
-                               "replayed box with it. Put the panel on its own empty GameObject. " +
-                               "Placement is disabled for now.");
+                Debug.LogError($"{Tag} This is on the same GameObject as the RoomScanRebuilder, " +
+                               $"and moving the panel would move every replayed box with it. " +
+                               $"Put the panel on its own empty GameObject. Placement is " +
+                               $"disabled for now.");
                 _canMove = false;
             }
 
             BuildUi();
+
+            // Hidden until MRUK reports in, so the panel does not flash up somewhere
+            // arbitrary and then jump once the room arrives.
+            _canvasGo.SetActive(false);
+        }
+
+        private void OnEnable()
+        {
+            if (recorder != null) recorder.OnScanCleared += HandleScanCleared;
+        }
+
+        private void OnDisable()
+        {
+            if (recorder != null) recorder.OnScanCleared -= HandleScanCleared;
         }
 
         private void Start()
         {
-            Apply(startMode);
-            if (placeOnStart) Recenter();
+            ReadDiskObjectCountOnce();
+            RefreshDiskState();
+            PollCounts();
+
+            if (!placeOnStart)
+            {
+                SpawnNow();
+                return;
+            }
+
+            if (MRUK.Instance == null)
+            {
+                Debug.LogWarning($"{Tag} No MRUK in the scene; placing immediately. Scan poses " +
+                                 $"will be raw world space rather than room-local.");
+                SpawnNow();
+                return;
+            }
+
+            MRUK.Instance.RegisterSceneLoadedCallback(SpawnNow);
+            StartCoroutine(SpawnIfMrukNeverReports());
+        }
+
+        /// <summary>
+        /// MRUK only raises SceneLoadedEvent once it actually has room data. In the Editor with
+        /// no headset attached -- or on a device where Space Setup was never run -- it stays
+        /// silent forever, and the panel would never appear at all.
+        /// </summary>
+        private IEnumerator SpawnIfMrukNeverReports()
+        {
+            yield return new WaitForSeconds(mrukTimeoutSeconds);
+            if (_hasSpawned) yield break;
+
+            Debug.LogWarning($"{Tag} MRUK reported no scene within {mrukTimeoutSeconds}s; " +
+                             $"placing anyway. On a headset this means Space Setup has not " +
+                             $"been run.");
+            SpawnNow();
+        }
+
+        /// <summary>
+        /// Shows the panel and drops it in front of the player. Idempotent, and it has to be:
+        /// RegisterSceneLoadedCallback invokes immediately when MRUK is already initialised
+        /// AND leaves the listener attached, so it can fire twice.
+        /// </summary>
+        private void SpawnNow()
+        {
+            if (_hasSpawned) return;
+            _hasSpawned = true;
+
+            _canvasGo.SetActive(true);
+
+            // Deliberately after SetActive. OVRRaycaster.Start assigns the canvas world
+            // camera, and Start does not run on an inactive GameObject -- wiring the input
+            // module to a raycaster that has not started yet is how the first click of the
+            // session ends up going nowhere.
+            EnsurePointer(_raycaster);
+
+            Recenter();
+
+            var room = MRUK.Instance != null ? MRUK.Instance.GetCurrentRoom() : null;
+            Debug.Log($"{Tag} Panel placed at {transform.position:F2} " +
+                      $"(mruk={MRUK.Instance != null} " +
+                      $"room={(room != null ? room.Anchor.Uuid.ToString() : "none")})");
         }
 
         private void Update()
         {
-            if (OVRInput.GetDown(toggleModeButton))
-                Apply(Current == Mode.Scan ? Mode.Talk : Mode.Scan);
+            if (Time.unscaledTime >= _nextCountsPoll)
+            {
+                _nextCountsPoll = Time.unscaledTime + countsRefreshInterval;
+                PollCounts();
+            }
 
-            if (OVRInput.GetDown(commitRescanButton))
-                CommitRescan();
+            if (Time.unscaledTime >= _nextDiskPoll)
+            {
+                _nextDiskPoll = Time.unscaledTime + diskRefreshInterval;
+                RefreshDiskState();
+            }
 
-            Redraw();
+            if (Time.time >= _lastActionExpiresAt)
+            {
+                _lastActionExpiresAt = float.PositiveInfinity;
+                _lastAction = "none yet";
+                _dirty = true;
+            }
+
+            if (_dirty || Time.unscaledTime >= _nextForcedRedraw)
+            {
+                _dirty = false;
+                _nextForcedRedraw = Time.unscaledTime + 1f;
+                Redraw();
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Counts
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Reads both counts from a single snapshot.
+        ///
+        /// Polled rather than driven by OnClusterChanged: that event fires on every accepted
+        /// detection, over a hundred times a second, and never fires on the transition that
+        /// actually matters here -- a cluster crossing minObservations and becoming
+        /// exportable.
+        ///
+        /// Note that "tracked" can go DOWN. MergeOverlapping collapses two clusters into one
+        /// and the id simply disappears, with no event. That is correct behaviour, not a lost
+        /// object.
+        /// </summary>
+        private void PollCounts()
+        {
+            if (recorder == null) return;
+
+            recorder.SnapshotClusters(_snapshot);
+
+            var ready = 0;
+            foreach (var view in _snapshot)
+                if (view.Exportable) ready++;
+
+            if (ready == _ready && _snapshot.Count == _tracked) return;
+
+            _ready = ready;
+            _tracked = _snapshot.Count;
+            _dirty = true;
+        }
+
+        // -----------------------------------------------------------------
+        // Disk
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Parses the scan file exactly once, at startup, to learn how many objects a scan
+        /// left over from a previous run holds. RoomScanIO.Load logs on every call, so doing
+        /// this on the refresh timer would flood logcat.
+        /// </summary>
+        private void ReadDiskObjectCountOnce()
+        {
+            if (!File.Exists(RoomScanIO.DefaultPath)) return;
+
+            try
+            {
+                var file = RoomScanIO.Load();
+                _diskObjects = file != null && file.objects != null ? file.objects.Count : -1;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{Tag} Could not read the existing scan file: {ex.Message}");
+                _diskObjects = -1;
+            }
+        }
+
+        /// <summary>
+        /// Size and existence only -- never a parse. Mirrors what ConvaiRoomHealthProbe does
+        /// for the same reason: this runs on a timer and the file is the only thing here that
+        /// costs disk IO to inspect properly.
+        /// </summary>
+        private void RefreshDiskState()
+        {
+            var previousState = _diskState;
+            var previousBytes = _diskBytes;
+
+            var path = RoomScanIO.DefaultPath;
+
+            if (!File.Exists(path))
+            {
+                _diskState = DiskState.Missing;
+                _diskBytes = 0;
+            }
+            else
+            {
+                var info = new FileInfo(path);
+                _diskBytes = info.Length;
+                _diskWriteUtc = info.LastWriteTimeUtc;
+
+                if (_diskBytes <= 0)
+                {
+                    _diskState = DiskState.Missing;
+                }
+                else
+                {
+                    // Staleness is decided from what happened this session, not from the
+                    // file's timestamp. Android filesystem timestamps are only accurate to a
+                    // second, so a clear immediately after a save cannot be ordered against
+                    // it -- and a file left by a PREVIOUS run is a perfectly good scan, not a
+                    // stale one.
+                    var stale = _savedThisSessionUtc.HasValue
+                                && _clearedAtUtc.HasValue
+                                && _clearedAtUtc.Value > _savedThisSessionUtc.Value;
+
+                    _diskState = stale ? DiskState.Stale : DiskState.Ready;
+                }
+            }
+
+            if (_diskState != previousState || _diskBytes != previousBytes) _dirty = true;
+        }
+
+        private void HandleScanCleared()
+        {
+            _clearedAtUtc = DateTime.UtcNow;
+            _ready = 0;
+            _tracked = 0;
+
+            RefreshDiskState();
+            _dirty = true;
+        }
+
+        // -----------------------------------------------------------------
+        // Actions
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Writes the current scan to disk.
+        ///
+        /// Goes through BuildScanFile + RoomScanIO.Save rather than the recorder's
+        /// ExportToJson wrapper, for two reasons: the write is unguarded in there, and
+        /// building the file here means the count reported on the panel is the count that
+        /// actually landed rather than a second, separately-built estimate.
+        /// </summary>
+        public void SaveScan()
+        {
+            if (recorder == null)
+            {
+                Report("save failed: no recorder in the scene");
+                Debug.LogError($"{Tag} No ObjectScanRecorder in the scene; nothing to save.");
+                return;
+            }
+
+            RoomScanFile file;
+            try
+            {
+                file = recorder.BuildScanFile();
+            }
+            catch (Exception ex)
+            {
+                Report($"save failed: {ex.Message}");
+                Debug.LogError($"{Tag} Could not build the scan file: {ex}");
+                return;
+            }
+
+            // An empty but syntactically valid file would turn the indicator green over
+            // something the next phase cannot use. Refusing, and saying why, is honest.
+            if (file.objects.Count == 0)
+            {
+                Report($"nothing ready to save ({_tracked} tracked, 0 ready)");
+                Debug.LogWarning($"{Tag} Save refused: no cluster has reached " +
+                                 $"{recorder.minObservations} observations yet.");
+                return;
+            }
+
+            try
+            {
+                RoomScanIO.Save(file, null);
+            }
+            catch (Exception ex)
+            {
+                Report($"save FAILED: {ex.Message}");
+                Debug.LogError($"{Tag} Save failed writing {RoomScanIO.DefaultPath}: {ex}");
+                RefreshDiskState();
+                return;
+            }
+
+            _savedThisSessionUtc = DateTime.UtcNow;
+            _diskObjects = file.objects.Count;
+
+            Report($"saved {file.objects.Count} objects");
+            Debug.Log($"{Tag} Saved {file.objects.Count} objects -> {RoomScanIO.DefaultPath}");
+
+            // Straight away rather than on the next tick: the indicator flipping a second
+            // after the button press reads as a bug.
+            RefreshDiskState();
+        }
+
+        /// <summary>
+        /// Deliberately not wired. Phase 2 does not exist yet, and a button that silently does
+        /// nothing is indistinguishable from a broken one -- so this acknowledges the press
+        /// and says why. Do not delete this thinking it is dead code; delete it when you
+        /// replace it with the real phase transition.
+        /// </summary>
+        private void NextPhaseNotWired()
+        {
+            Report("next phase is not wired up yet");
+            Debug.Log($"{Tag} Next-phase button pressed; deliberately not wired up yet " +
+                      $"(phase 1 only).");
+        }
+
+        /// <summary>Drops the panel back in front of the player, facing them.</summary>
+        public void Recenter()
+        {
+            if (!_canMove)
+            {
+                Report("recenter refused: panel shares the rebuilder's object");
+                return;
+            }
+
+            var head = Camera.main;
+            if (head == null)
+            {
+                Debug.LogWarning($"{Tag} No main camera, so the panel cannot be placed " +
+                                 $"relative to the player.");
+                return;
+            }
+
+            var forward = head.transform.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 1e-4f) forward = Vector3.forward;
+            forward.Normalize();
+
+            transform.position = head.transform.position + forward * distanceFromPlayer
+                                                         + Vector3.up * heightOffset;
+
+            // The canvas draws on its +Z face, so matching the player's forward turns the
+            // readable side toward them rather than away.
+            transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            Report("panel recentered");
+        }
+
+        /// <summary>Posts a transient message to the panel's last-action line.</summary>
+        private void Report(string message)
+        {
+            _lastAction = message;
+            _lastActionExpiresAt = Time.time + 6f;
+            _dirty = true;
         }
 
         // -----------------------------------------------------------------
@@ -148,19 +481,19 @@ namespace ConvaiRoom
 
         private void BuildUi()
         {
-            var canvasGo = new GameObject("Panel Canvas", typeof(RectTransform));
-            canvasGo.transform.SetParent(transform, false);
+            _canvasGo = new GameObject("Panel Canvas", typeof(RectTransform));
+            _canvasGo.transform.SetParent(transform, false);
 
-            var canvas = canvasGo.AddComponent<Canvas>();
+            var canvas = _canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
 
-            var canvasRect = (RectTransform)canvasGo.transform;
+            var canvasRect = (RectTransform)_canvasGo.transform;
             canvasRect.sizeDelta = new Vector2(CanvasWidth, CanvasHeight);
             canvasRect.localScale = Vector3.one * (panelWidth / CanvasWidth);
 
             // OVRRaycaster rather than the stock GraphicRaycaster: the stock one only
             // understands a screen-space mouse and cannot be driven by a tracked ray.
-            var raycaster = canvasGo.AddComponent<OVRRaycaster>();
+            _raycaster = _canvasGo.AddComponent<OVRRaycaster>();
 
             var background = MakeRect(canvasRect, "Background", 0f, 0f, CanvasWidth, CanvasHeight)
                 .gameObject.AddComponent<Image>();
@@ -168,28 +501,40 @@ namespace ConvaiRoom
 
             _titleText = MakeText(canvasRect, "Title", 16f, 12f, CanvasWidth - 32f, 28f,
                                   24, TextAnchor.MiddleLeft);
+            _titleText.text = "PHASE 1 - SCAN";
+            _titleText.color = new Color(1f, 0.85f, 0.3f);
 
-            _statusText = MakeText(canvasRect, "Status", 16f, 48f, CanvasWidth - 32f, 170f,
-                                   17, TextAnchor.UpperLeft);
+            _countsText = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
+                                   34, TextAnchor.MiddleLeft);
 
-            _scanButtonImage = MakeButton(canvasRect, "Scan Button", "SCAN",
-                                          16f, 224f, 186f, 46f, () => Apply(Mode.Scan));
-            _talkButtonImage = MakeButton(canvasRect, "Talk Button", "TALK",
-                                          218f, 224f, 186f, 46f, () => Apply(Mode.Talk));
+            _statusText = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 126f,
+                                   16, TextAnchor.UpperLeft);
 
-            MakeButton(canvasRect, "Rescan Button", "COMMIT RESCAN",
-                       16f, 278f, 186f, 46f, CommitRescan);
+            MakeButton(canvasRect, "Save Button", "SAVE SCAN",
+                       16f, 224f, 186f, 46f, SaveScan);
             MakeButton(canvasRect, "Recenter Button", "RECENTER",
-                       218f, 278f, 186f, 46f, Recenter);
+                       218f, 224f, 186f, 46f, Recenter);
+
+            var nextPhase = MakeButton(canvasRect, "Next Phase Button",
+                                       "NEXT PHASE <color=#7a7a80>(not wired)</color>",
+                                       16f, 278f, CanvasWidth - 32f, 46f, NextPhaseNotWired);
+
+            // Left interactable on purpose. A non-interactable Selectable receives no pointer
+            // events at all -- no hover, no press, nothing -- which is exactly how a broken
+            // button behaves. It is styled as locked instead, and says so when pressed.
+            var nextPhaseImage = nextPhase.targetGraphic as Image;
+            if (nextPhaseImage != null) nextPhaseImage.color = LockedButton;
+
+            var nextPhaseLabel = nextPhase.GetComponentInChildren<Text>();
+            if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
 
             _cursor = ConvaiRoomLaserCursor.Create();
-            EnsurePointer(raycaster);
         }
 
         /// <summary>
         /// Makes sure something in the scene is actually driving UI events from a tracked
-        /// controller. Without an OVRInputModule the buttons render but never receive a
-        /// click, which is indistinguishable from the panel being broken.
+        /// controller. Without an OVRInputModule the buttons render but never receive a click,
+        /// which is indistinguishable from the panel being broken.
         /// </summary>
         private void EnsurePointer(OVRRaycaster raycaster)
         {
@@ -215,8 +560,8 @@ namespace ConvaiRoom
             module.m_Cursor = _cursor;
 
             // Assigned here rather than left to OVRRaycaster's OnPointerEnter: until some
-            // pointer has entered a canvas the module holds no raycaster, so the very
-            // first click of the session has nothing to hit.
+            // pointer has entered a canvas the module holds no raycaster, so the very first
+            // click of the session has nothing to hit.
             module.activeGraphicRaycaster = raycaster;
             raycaster.pointer = _cursor.gameObject;
         }
@@ -227,8 +572,8 @@ namespace ConvaiRoom
 
             if (rig == null)
             {
-                Debug.LogWarning("[ConvaiRoomModePanel] No OVRCameraRig, so the laser falls " +
-                                 "back to the head. Panel buttons will follow your gaze.");
+                Debug.LogWarning($"{Tag} No OVRCameraRig, so the laser falls back to the head. " +
+                                 $"Panel buttons will follow your gaze.");
                 return Camera.main != null ? Camera.main.transform : null;
             }
 
@@ -245,8 +590,8 @@ namespace ConvaiRoom
 
             var rect = (RectTransform)go.transform;
 
-            // Anchored to the top-left corner so the layout numbers above read as an
-            // ordinary top-down stack rather than offsets from the centre.
+            // Anchored to the top-left corner so the layout numbers above read as an ordinary
+            // top-down stack rather than offsets from the centre.
             rect.anchorMin = new Vector2(0f, 1f);
             rect.anchorMax = new Vector2(0f, 1f);
             rect.pivot = new Vector2(0f, 1f);
@@ -273,8 +618,13 @@ namespace ConvaiRoom
             return text;
         }
 
-        private Image MakeButton(Transform parent, string name, string label,
-                                 float x, float y, float width, float height, UnityAction onClick)
+        /// <summary>
+        /// Builds one panel button. Returns the Button rather than its Image so callers can
+        /// reach both the tint target and the label -- the locked next-phase button needs to
+        /// recolour both.
+        /// </summary>
+        private Button MakeButton(Transform parent, string name, string label,
+                                  float x, float y, float width, float height, UnityAction onClick)
         {
             var rect = MakeRect(parent, name, x, y, width, height);
 
@@ -286,16 +636,16 @@ namespace ConvaiRoom
             button.colors = ButtonColors();
             button.onClick.AddListener(onClick);
 
-            MakeText(rect, "label", 0f, 0f, width, height, 20, TextAnchor.MiddleCenter);
-            return image;
+            MakeText(rect, "label", 0f, 0f, width, height, 20, TextAnchor.MiddleCenter).text = label;
+            return button;
         }
 
         private static ColorBlock ButtonColors()
         {
             var colors = ColorBlock.defaultColorBlock;
 
-            // ColorTint multiplies the graphic's own colour, so white leaves the base
-            // tint alone and the active/inactive colours below still show through.
+            // ColorTint multiplies the graphic's own colour, so white leaves the base tint
+            // alone and the per-button colours above still show through.
             colors.normalColor = Color.white;
             colors.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f);
             colors.pressedColor = new Color(0.65f, 0.65f, 0.65f, 1f);
@@ -305,124 +655,76 @@ namespace ConvaiRoom
         }
 
         // -----------------------------------------------------------------
-        // Behaviour
+        // Drawing
         // -----------------------------------------------------------------
-
-        /// <summary>Switches mode. Public so a button or another script can drive it.</summary>
-        public void Apply(Mode mode)
-        {
-            Current = mode;
-            var scanning = mode == Mode.Scan;
-
-            SetCharacterVisible(!scanning);
-
-            // The recorder is the expensive one -- it holds the depth pipeline open.
-            if (recorder != null) recorder.enabled = scanning;
-            if (scanController != null) scanController.enabled = scanning;
-
-            // Stop detection at the source rather than just hiding the result. Left
-            // running, the agent costs a YOLO pass per frame in Talk mode for boxes
-            // nobody is looking at.
-            if (detectionAgent != null) detectionAgent.enabled = scanning;
-
-            // LiveScanVisualizer destroys its boxes in OnDisable, so switching it off is
-            // what actually clears the in-progress wireframes. The replayed boxes are
-            // untouched -- they belong to RoomScanRebuilder, not to this.
-            if (liveVisualizer != null) liveVisualizer.enabled = scanning;
-
-            Debug.Log($"[ConvaiRoomModePanel] Mode -> {mode}. " +
-                      $"detection={(detectionAgent != null ? scanning.ToString() : "absent")} " +
-                      $"liveBoxes={(liveVisualizer != null ? scanning.ToString() : "absent")}");
-        }
-
-        /// <summary>Drops the panel back in front of the player, facing them.</summary>
-        public void Recenter()
-        {
-            if (!_canMove)
-            {
-                _lastAction = "recenter refused: panel shares the rebuilder's object";
-                return;
-            }
-
-            var head = Camera.main;
-            if (head == null)
-            {
-                Debug.LogWarning("[ConvaiRoomModePanel] No main camera, so the panel cannot " +
-                                 "be placed relative to the player.");
-                return;
-            }
-
-            var forward = head.transform.forward;
-            forward.y = 0f;
-            if (forward.sqrMagnitude < 1e-4f) forward = Vector3.forward;
-            forward.Normalize();
-
-            transform.position = head.transform.position + forward * distanceFromPlayer
-                                                         + Vector3.up * heightOffset;
-
-            // The canvas draws on its +Z face, so matching the player's forward turns the
-            // readable side toward them rather than away.
-            transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-            _lastAction = "panel recentered";
-        }
-
-        /// <summary>
-        /// Adopts whatever scan is currently on disk and replays it, replacing the boxes
-        /// standing in the room.
-        /// </summary>
-        public void CommitRescan()
-        {
-            if (rebuilder == null)
-            {
-                _lastAction = "rescan failed: no rebuilder";
-                Debug.LogError("[ConvaiRoomModePanel] No RoomScanRebuilder to rescan with.");
-                return;
-            }
-
-            rebuilder.Rebuild();
-            _lastAction = $"rescan: {rebuilder.Rebuilt?.Count ?? 0} boxes replayed";
-        }
-
-        private void SetCharacterVisible(bool visible)
-        {
-            if (character == null) return;
-
-            foreach (var renderer in character.GetComponentsInChildren<Renderer>(true))
-                renderer.enabled = visible;
-        }
 
         private void Redraw()
         {
-            if (_statusText == null) return;
-
-            var scanning = Current == Mode.Scan;
-
-            if (_titleText != null)
+            if (_countsText != null)
             {
-                _titleText.text = scanning ? "SCAN MODE" : "TALK MODE";
-                _titleText.color = scanning
-                    ? new Color(1f, 0.85f, 0.3f)
-                    : new Color(0.5f, 0.9f, 1f);
+                _countsText.text = $"{_ready} ready / {_tracked} tracked";
+                _countsText.color = _ready > 0
+                    ? new Color(0.5f, 0.9f, 1f)
+                    : new Color(0.75f, 0.75f, 0.78f);
             }
 
-            if (_scanButtonImage != null)
-                _scanButtonImage.color = scanning ? ActiveButton : InactiveButton;
-            if (_talkButtonImage != null)
-                _talkButtonImage.color = scanning ? InactiveButton : ActiveButton;
+            if (_statusText == null) return;
 
             _builder.Clear();
-            _builder.AppendLine(scanning
-                ? "Scanning live. A=export  B=clear  X=rebuild"
-                : "Talking. Character visible, scanner off.");
-            _builder.AppendLine();
 
-            _builder.AppendLine($"boxes replayed : {rebuilder?.Rebuilt?.Count ?? 0}");
-            _builder.AppendLine($"anchored to    : {(rebuilder?.Room != null ? "MRUK room" : "RAW WORLD SPACE")}");
-            _builder.AppendLine($"in conversation: {character != null && character.IsInConversation}");
+            // Read the thresholds off the recorder rather than hardcoding them, so this line
+            // cannot go stale if someone tunes the clustering.
+            if (recorder != null)
+                _builder.AppendLine($"ready = seen {recorder.minObservations}+ times, " +
+                                    $"under {recorder.maxObjectSize} m");
+            else
+                _builder.AppendLine("<color=#ff8080>no recorder in the scene</color>");
+
+            _builder.AppendLine(DiskLine());
+            _builder.AppendLine(AnchorLine());
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
 
             _statusText.text = _builder.ToString();
+        }
+
+        private string DiskLine()
+        {
+            switch (_diskState)
+            {
+                case DiskState.Missing:
+                    return "scan file : <color=#ff8080>NO</color> - nothing saved yet";
+
+                case DiskState.Stale:
+                    return $"scan file : <color=#ffc44d>STALE</color> - saved before you " +
+                           $"cleared ({Kilobytes()})";
+
+                default:
+                    var objects = _diskObjects >= 0 ? $"{_diskObjects} objects, " : "";
+                    return $"scan file : <color=#7fd97f>YES</color> - {objects}" +
+                           $"{Kilobytes()}, {Age()}";
+            }
+        }
+
+        private string AnchorLine()
+        {
+            var room = MRUK.Instance != null ? MRUK.Instance.GetCurrentRoom() : null;
+
+            return room != null
+                ? "anchored  : <color=#7fd97f>MRUK room</color>"
+                : "anchored  : <color=#ffc44d>RAW WORLD SPACE</color>";
+        }
+
+        private string Kilobytes() => $"{_diskBytes / 1024f:0.0} KB";
+
+        private string Age()
+        {
+            var age = DateTime.UtcNow - _diskWriteUtc;
+
+            if (age.TotalSeconds < 60) return "just now";
+            if (age.TotalMinutes < 60) return $"{(int)age.TotalMinutes}m ago";
+            if (age.TotalHours < 24) return $"{(int)age.TotalHours}h ago";
+            return $"{(int)age.TotalDays}d ago";
         }
     }
 }

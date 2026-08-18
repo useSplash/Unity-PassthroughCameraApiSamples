@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/Room Flow.unity
+    guid: c1deabb42a6d7c4449b27bb304ce1972
+  - enabled: 1
     path: Assets/Scenes/Camera API Test.unity
     guid: 447fd4cb311a7af4cbd04555d5a4e4dd
   - enabled: 1
