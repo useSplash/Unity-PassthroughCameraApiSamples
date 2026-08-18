@@ -5,7 +5,6 @@ using Convai.Runtime.Components;
 using Meta.XR.MRUtilityKit;
 using RoomScan;
 using UnityEngine;
-using UnityEngine.AI;
 
 namespace ConvaiRoom
 {
@@ -20,9 +19,9 @@ namespace ConvaiRoom
     /// The ladder matters more than any individual line. Batches arriving with no capture
     /// pose means depth is not being delivered; detections forwarded with no pending
     /// clusters means the raycasts are missing the room; clusters with no scan file means
-    /// nothing was ever exported; a scan file with an empty catalogue means everything
-    /// fell below the confidence floor. Each of those looks identical from the outside --
-    /// the character simply knows nothing about the room.
+    /// nothing was ever exported; a scan file that replays no boxes means the export was
+    /// empty. Each of those looks identical from the outside -- the room simply comes up
+    /// bare.
     /// </summary>
     public class ConvaiRoomHealthProbe : MonoBehaviour
     {
@@ -41,10 +40,7 @@ namespace ConvaiRoom
         public ObjectDetectionScanBridge bridge;
         public ObjectScanRecorder recorder;
         public RoomScanRebuilder rebuilder;
-        public RoomScanNavMeshBuilder navMeshBuilder;
-        public RoomScanActionConfigBuilder actionConfigBuilder;
         public ConvaiCharacter character;
-        public NavMeshAgent agent;
 
         private readonly StringBuilder _builder = new StringBuilder();
         private readonly List<string> _problems = new List<string>();
@@ -56,11 +52,7 @@ namespace ConvaiRoom
             if (bridge == null) bridge = FindAnyObjectByType<ObjectDetectionScanBridge>();
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
             if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
-            if (navMeshBuilder == null) navMeshBuilder = FindAnyObjectByType<RoomScanNavMeshBuilder>();
-            if (actionConfigBuilder == null)
-                actionConfigBuilder = FindAnyObjectByType<RoomScanActionConfigBuilder>();
             if (character == null) character = FindAnyObjectByType<ConvaiCharacter>();
-            if (agent == null) agent = FindAnyObjectByType<NavMeshAgent>();
         }
 
         private void Start() => Report();
@@ -86,8 +78,6 @@ namespace ConvaiRoom
             ReportRecorder();
             ReportScanFile();
             ReportReplay();
-            ReportNavMesh();
-            ReportCatalogue();
             ReportConvai();
 
             var verdict = _problems.Count == 0
@@ -177,32 +167,12 @@ namespace ConvaiRoom
                  $"anchored={(anchored ? "MRUK_ROOM" : "RAW_WORLD_SPACE")}");
         }
 
-        private void ReportNavMesh()
-        {
-            var valid = navMeshBuilder != null && navMeshBuilder.HasNavMesh;
-
-            Line("navmesh", valid,
-                 $"valid={valid} obstacles={(navMeshBuilder != null ? navMeshBuilder.ObstacleCount : 0)} " +
-                 $"agentOnMesh={(agent != null && agent.enabled && agent.isOnNavMesh)}");
-        }
-
-        private void ReportCatalogue()
-        {
-            var count = actionConfigBuilder != null && actionConfigBuilder.LastObjects != null
-                ? actionConfigBuilder.LastObjects.Count
-                : 0;
-
-            // This is the number the character actually receives. Zero here means it was
-            // connected without a catalogue and knows nothing about the room.
-            Line("catalogue", count > 0, $"objectsSentToCharacter={count}");
-        }
-
         private void ReportConvai()
         {
             var present = character != null;
 
             // Presence is the pass condition, not conversation: not talking yet is the
-            // normal state at startup, but it does block CommitRescan from pushing.
+            // normal state at startup.
             Line("convai", present,
                  $"character={present} " +
                  $"inConversation={present && character.IsInConversation}");

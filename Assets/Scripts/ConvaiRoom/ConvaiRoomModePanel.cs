@@ -1,12 +1,8 @@
 using System.Text;
-using Convai.Runtime;
 using Convai.Runtime.Components;
-using Convai.Runtime.DynamicContext;
-using Convai.Shared.Actions;
 using Meta.XR.BuildingBlocks.AIBlocks;
 using RoomScan;
 using UnityEngine;
-using UnityEngine.AI;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -20,8 +16,7 @@ namespace ConvaiRoom
     /// One scene rather than two on purpose. A scene load re-initialises MRUK, which means
     /// re-running the anchor race that puts replayed boxes in raw world space, and it tears
     /// down the Convai session so every switch costs a reconnect. Staying put keeps the
-    /// room anchored once and the session alive, which is also what makes pushing a freshly
-    /// scanned catalogue to a live character possible at all.
+    /// room anchored once and the session alive.
     ///
     /// The panel is placed once and then left alone. An earlier version followed the head
     /// every frame, which is unreadable to look at and makes the panel impossible to aim
@@ -47,10 +42,7 @@ namespace ConvaiRoom
 
         [Header("Wiring (left empty, these are found in the scene)")]
         public RoomScanRebuilder rebuilder;
-        public RoomScanNavMeshBuilder navMeshBuilder;
-        public RoomScanActionConfigBuilder actionConfigBuilder;
         public ConvaiCharacter character;
-        public NavMeshAgent agent;
 
         [Tooltip("Live scanning components, switched off in Talk mode so they stop " +
                  "consuming depth and GPU while you are only holding a conversation.")]
@@ -111,11 +103,7 @@ namespace ConvaiRoom
         private void Awake()
         {
             if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
-            if (navMeshBuilder == null) navMeshBuilder = FindAnyObjectByType<RoomScanNavMeshBuilder>();
-            if (actionConfigBuilder == null)
-                actionConfigBuilder = FindAnyObjectByType<RoomScanActionConfigBuilder>();
             if (character == null) character = FindAnyObjectByType<ConvaiCharacter>();
-            if (agent == null) agent = FindAnyObjectByType<NavMeshAgent>();
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
             if (scanController == null) scanController = FindAnyObjectByType<RoomScanController>();
             if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
@@ -379,9 +367,8 @@ namespace ConvaiRoom
         }
 
         /// <summary>
-        /// Adopts whatever scan is currently on disk: replay it, re-bake the floor so the
-        /// character can walk the new layout, rebuild the catalogue, and push it to the
-        /// live session.
+        /// Adopts whatever scan is currently on disk and replays it, replacing the boxes
+        /// standing in the room.
         /// </summary>
         public void CommitRescan()
         {
@@ -393,66 +380,7 @@ namespace ConvaiRoom
             }
 
             rebuilder.Rebuild();
-
-            var baked = navMeshBuilder != null && navMeshBuilder.Build();
-            if (!baked)
-                Debug.LogWarning("[ConvaiRoomModePanel] Re-bake failed, so the character can " +
-                                 "still talk about the new scan but not walk it.");
-
-            var config = actionConfigBuilder != null ? actionConfigBuilder.Build() : null;
-            if (config == null)
-            {
-                _lastAction = "rescan: no catalogue built";
-                Debug.LogWarning("[ConvaiRoomModePanel] Rescan produced no catalogue.");
-                return;
-            }
-
-            var pushed = PushCatalogue(config);
-            _lastAction = $"rescan: {config.Objects.Count} objects, " +
-                          $"bake {(baked ? "ok" : "FAILED")}, " +
-                          $"push {(pushed ? "sent" : "SKIPPED")}";
-        }
-
-        /// <summary>
-        /// Sends the rebuilt catalogue to the already-connected character.
-        ///
-        /// Apply reports nothing back -- it validates and reconciles the patch internally
-        /// and only warns to the log on rejection -- so the best this can confirm is that
-        /// the call was made against a live conversation. Watch the console for
-        /// "invalid_action_patch" to see the rejection case.
-        /// </summary>
-        private bool PushCatalogue(ConvaiActionConfig config)
-        {
-            if (character == null)
-            {
-                Debug.LogWarning("[ConvaiRoomModePanel] No ConvaiCharacter, so the new " +
-                                 "catalogue cannot be delivered; it will apply on next connect.");
-                return false;
-            }
-
-            // Apply drops the update with only a warning when the character is not yet in
-            // conversation, which is easy to miss in a busy log.
-            if (!character.IsInConversation)
-            {
-                Debug.LogWarning("[ConvaiRoomModePanel] Character is not in conversation yet, " +
-                                 "so the new catalogue was not sent. It will be picked up when " +
-                                 "the session next connects.");
-                return false;
-            }
-
-            var patch = new ConvaiActionConfigPatch
-            {
-                Actions = config.Actions,
-                Objects = config.Objects
-            };
-
-            character.DynamicContext.Apply(new ConvaiDynamicContextUpdate(
-                text: $"The room was rescanned and now contains {config.Objects.Count} objects.",
-                mode: ConvaiContextUpdateMode.Replace,
-                reaction: ConvaiRespondMode.Silent,
-                actionConfig: patch));
-
-            return true;
+            _lastAction = $"rescan: {rebuilder.Rebuilt?.Count ?? 0} boxes replayed";
         }
 
         private void SetCharacterVisible(bool visible)
@@ -468,7 +396,6 @@ namespace ConvaiRoom
             if (_statusText == null) return;
 
             var scanning = Current == Mode.Scan;
-            var catalogue = actionConfigBuilder != null ? actionConfigBuilder.LastObjects : null;
 
             if (_titleText != null)
             {
@@ -491,10 +418,7 @@ namespace ConvaiRoom
 
             _builder.AppendLine($"boxes replayed : {rebuilder?.Rebuilt?.Count ?? 0}");
             _builder.AppendLine($"anchored to    : {(rebuilder?.Room != null ? "MRUK room" : "RAW WORLD SPACE")}");
-            _builder.AppendLine($"navmesh        : {(navMeshBuilder != null && navMeshBuilder.HasNavMesh ? "valid" : "none")}"
-                                + $" ({navMeshBuilder?.ObstacleCount ?? 0} obstacles)");
-            _builder.AppendLine($"catalogue      : {catalogue?.Count ?? 0} objects");
-            _builder.AppendLine($"agent on mesh  : {(agent != null && agent.enabled && agent.isOnNavMesh)}");
+            _builder.AppendLine($"in conversation: {character != null && character.IsInConversation}");
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
 
