@@ -1779,7 +1779,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   HandType: 1
-  _pointerPoseRoot: {fileID: 0}
+  _pointerPoseRoot: {fileID: 2128811367}
   m_showState: 3
   RayHelper: {fileID: 0}
 --- !u!114 &321113240
@@ -12162,7 +12162,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   HandType: 0
-  _pointerPoseRoot: {fileID: 0}
+  _pointerPoseRoot: {fileID: 2128811367}
   m_showState: 3
   RayHelper: {fileID: 0}
 --- !u!114 &2136293326

@@ -98,21 +98,47 @@ namespace ConvaiRoom
             return dot.transform;
         }
 
+        /// <summary>
+        /// Keeps the ray transform rather than the point it was at, so LateUpdate can read the
+        /// pose again after everything else has moved this frame.
+        ///
+        /// The input module calls in here from Process(), which runs on EventSystem's Update.
+        /// Nothing orders that against OVRHand's Update, and OVRHand is what writes the hand's
+        /// PointerPose. Draw straight from the value handed over and roughly half the time it
+        /// is last frame's pose -- which sits still when your hand does and lags behind it when
+        /// it moves. Re-reading the transform in LateUpdate is always the freshest pose
+        /// available, whatever order the Updates ran in.
+        ///
+        /// Controllers never showed this because OVRControllerHelper's ray transform is its own
+        /// GameObject under the camera rig, and the rig updates its anchors before LateUpdate
+        /// either way.
+        /// </summary>
+        private Transform _ray;
+
+        // Set when the module reports an actual UI hit this frame, which is a real endpoint
+        // rather than the arbitrary idle length.
+        private bool _hitThisFrame;
+        private Vector3 _hitEnd;
+
         public override void SetCursorRay(Transform ray)
         {
-            Draw(ray.position, ray.position + ray.forward * idleLength);
+            _ray = ray;
+            _lastDrivenTime = Time.unscaledTime;
         }
 
         public override void SetCursorStartDest(Vector3 start, Vector3 dest, Vector3 normal)
         {
-            Draw(start, dest);
+            _hitThisFrame = true;
+            _hitEnd = dest;
+            _lastDrivenTime = Time.unscaledTime;
+
+            // start is deliberately dropped. It is the ray origin as it was when the raycast
+            // ran, and the whole point here is to take that from the transform instead.
         }
 
         private void Draw(Vector3 start, Vector3 end)
         {
             if (_line == null) return;
-
-            _lastDrivenTime = Time.unscaledTime;
 
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
@@ -123,6 +149,18 @@ namespace ConvaiRoom
         private void LateUpdate()
         {
             var driven = Time.unscaledTime - _lastDrivenTime <= driveTimeout;
+
+            if (driven && _ray != null)
+            {
+                // The endpoint from a hit is one frame old at worst, which costs a little
+                // angular accuracy at the far end. The origin is what has to be right: a beam
+                // that does not start at your hand reads as broken, one whose far end is a
+                // few millimetres out does not.
+                var start = _ray.position;
+                Draw(start, _hitThisFrame ? _hitEnd : start + _ray.forward * idleLength);
+            }
+
+            _hitThisFrame = false;
 
             if (_line != null) _line.enabled = driven;
             if (_dot != null) _dot.gameObject.SetActive(driven);
