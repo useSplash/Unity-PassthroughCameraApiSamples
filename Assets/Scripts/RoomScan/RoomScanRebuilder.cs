@@ -49,7 +49,25 @@ namespace RoomScan
         public string jsonPath;          // blank = Application.persistentDataPath/room_scan.json
         public bool rebuildOnStart = true;
 
+        [Header("Wall alignment")]
+        [Tooltip("Fit the scan's saved walls onto the walls MRUK reports now, and correct every " +
+                 "object pose by the difference.\n\nOnly does anything when the room anchor has " +
+                 "moved since capture -- re-running Space Setup in the same room is the case " +
+                 "this exists for. Same room, same setup, the correction solves to nothing.")]
+        public bool alignToSavedWalls = true;
+
+        [Tooltip("Mean wall error, in metres, above which the fit is thrown away and the file's " +
+                 "own coordinates are used unchanged. A bad fit is worse than no fit: it moves " +
+                 "every object confidently to the wrong place.")]
+        public float maxWallError = 0.35f;
+
+        [Tooltip("How much better the winning orientation must score than the runner-up before " +
+                 "it is trusted. Under this, the room's walls fit more than one way round and " +
+                 "the log says so.")]
+        public float ambiguityMargin = 0.1f;
+
         private MRUKRoom _room;
+        private RoomAlignment _alignment = RoomAlignment.None("not solved yet");
         private readonly List<RebuiltObject> _spawned = new List<RebuiltObject>();
 
         /// <summary>Raised after every <see cref="Rebuild"/>, including one that spawned nothing.</summary>
@@ -66,6 +84,12 @@ namespace RoomScan
         /// in which case room-local coordinates were treated as world space.
         /// </summary>
         public MRUKRoom Room => _room;
+
+        /// <summary>
+        /// The wall fit applied to the last Rebuild. Never applied means the poses went in
+        /// exactly as the file stored them; check <see cref="RoomAlignment.Summary"/> for why.
+        /// </summary>
+        public RoomAlignment Alignment => _alignment;
 
         private void Start()
         {
@@ -105,18 +129,25 @@ namespace RoomScan
 
             if (data == null)
             {
+                // Cleared rather than left alone: Alignment is public, and a stale fit from a
+                // previous rebuild would describe boxes that no longer exist.
+                _alignment = RoomAlignment.None("no scan loaded");
+
                 // Still notify: listeners waiting to bake or connect must not hang
                 // just because there is no scan on this device yet.
                 OnRebuilt?.Invoke(this);
                 return;
             }
 
-            if (_room != null && data.originAnchorUuid != "none" &&
-                data.originAnchorUuid != _room.Anchor.Uuid.ToString())
-            {
-                Debug.LogWarning($"[RoomScanRebuilder] Scan was captured in a different room " +
-                                 $"({data.originAnchorUuid}). Boxes will be misplaced.");
-            }
+            var reanchored = _room != null && data.originAnchorUuid != "none" &&
+                             data.originAnchorUuid != _room.Anchor.Uuid.ToString();
+
+            // Solved before anything spawns -- RoomToWorld reads it for every box.
+            _alignment = alignToSavedWalls && _room != null
+                ? RoomScanAligner.Solve(data, _room, maxWallError, ambiguityMargin)
+                : RoomAlignment.None(alignToSavedWalls ? "no MRUK room" : "alignment turned off");
+
+            ReportAlignment(reanchored, data.originAnchorUuid);
 
             foreach (var obj in data.objects)
                 _spawned.Add(new RebuiltObject(obj, SpawnBox(obj)));
@@ -135,6 +166,44 @@ namespace RoomScan
                                  $"or the scan replayed before MRUK finished loading.");
             OnRebuilt?.Invoke(this);
         }
+
+        /// <summary>
+        /// Says what the wall fit did, and how much to trust it.
+        ///
+        /// The anchor UUID changing is the whole reason this feature exists -- re-running Space
+        /// Setup in the same room produces a new one -- so on its own it is news, not a fault.
+        /// It only becomes a warning when the fit also failed, because that is the combination
+        /// that puts boxes somewhere wrong.
+        /// </summary>
+        private void ReportAlignment(bool reanchored, string originUuid)
+        {
+            if (_alignment.Applied)
+            {
+                if (_alignment.Ambiguous)
+                    Debug.LogWarning($"[RoomScanRebuilder] Aligned to the current walls, but the " +
+                                     $"room fits more than one way round -- the runner-up was only " +
+                                     $"{_alignment.Margin:F2} m worse. A rectangular room maps onto " +
+                                     $"itself at 180 degrees and a square one every 90, so the walls " +
+                                     $"cannot settle this. Took {_alignment.Summary}. If the room " +
+                                     $"came back rotated, this is why.");
+                else
+                    Debug.Log($"[RoomScanRebuilder] Aligned to the current walls: " +
+                              $"{_alignment.Summary} (runner-up {_alignment.Margin:F2} m worse).");
+
+                return;
+            }
+
+            if (reanchored)
+                Debug.LogWarning($"[RoomScanRebuilder] The scan was captured against a different " +
+                                 $"room anchor ({Shorten(originUuid)}) and could not be realigned: " +
+                                 $"{_alignment.Summary}. Boxes will be misplaced.");
+            else
+                Debug.Log($"[RoomScanRebuilder] Using the scan's own coordinates unchanged " +
+                          $"({_alignment.Summary}).");
+        }
+
+        private static string Shorten(string uuid)
+            => string.IsNullOrEmpty(uuid) || uuid.Length <= 8 ? uuid : uuid.Substring(0, 8) + "...";
 
         private GameObject SpawnBox(ScannedObject obj)
         {
@@ -189,15 +258,19 @@ namespace RoomScan
         }
 
         /// <summary>
-        /// Room-local to world. Falls through unchanged when MRUK is absent, matching
-        /// the recorder's own fallback so a scan captured without a room still replays
-        /// self-consistently (just not anchored to anything real).
+        /// Room-local to world, by way of the wall alignment.
+        ///
+        /// Two corrections, in order: the file's frame to today's room frame (identity unless
+        /// the room anchor moved since capture), then room-local to world. Falls through
+        /// unchanged when MRUK is absent, matching the recorder's own fallback so a scan
+        /// captured without a room still replays self-consistently -- just not anchored to
+        /// anything real.
         /// </summary>
         public Vector3 RoomToWorld(Vector3 local)
-            => _room == null ? local : _room.transform.TransformPoint(local);
+            => _room == null ? local : _room.transform.TransformPoint(_alignment.Apply(local));
 
         public Quaternion RoomToWorld(Quaternion local)
-            => _room == null ? local : _room.transform.rotation * local;
+            => _room == null ? local : _room.transform.rotation * _alignment.Apply(local);
     }
 
 }
