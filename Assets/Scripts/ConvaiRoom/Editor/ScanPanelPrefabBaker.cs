@@ -28,7 +28,7 @@ namespace ConvaiRoomEditor
         // Authoring units. The canvas is laid out in these and then scaled to metres, so the
         // numbers below read like ordinary UI pixels rather than millimetres.
         private const float CanvasWidth = 420f;
-        private const float CanvasHeight = 500f;
+        private const float CanvasHeight = 580f;
 
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
@@ -76,9 +76,15 @@ namespace ConvaiRoomEditor
 
             try
             {
+                // Only when the folder is genuinely new. Refresh kicks off an import, and from
+                // inside an automated call that means a domain reload part-way through -- which
+                // tears down the assembly the caller is running in and unwinds the bake with it.
                 var directory = Path.GetDirectoryName(prefabPath);
-                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-                AssetDatabase.Refresh();
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                    AssetDatabase.Refresh();
+                }
 
                 var prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath, out var success);
 
@@ -144,25 +150,29 @@ namespace ConvaiRoomEditor
             var counts = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
                                   34, TextAnchor.MiddleLeft);
 
-            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 118f,
+            // 136 rather than 118 -- the readout gained a navmesh line.
+            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 136f,
                                   16, TextAnchor.UpperLeft);
 
-            var controls = MakeText(canvasRect, "Controls", 16f, 216f, CanvasWidth - 32f, 88f,
+            var controls = MakeText(canvasRect, "Controls", 16f, 234f, CanvasWidth - 32f, 88f,
                                     16, TextAnchor.UpperLeft);
 
-            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 312f, 186f, 54f);
-            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 312f, 186f, 54f);
+            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 330f, 186f, 54f);
+            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 330f, 186f, 54f);
 
-            // Full width, and above the phase button rather than beside the save pair. Loading
-            // replaces what is on screen with what is on disk, which is a different kind of act
-            // from the two above it -- worth its own row rather than being mistaken for one of
-            // the pair while you are aiming a jittery hand ray at it.
+            // Full width, one per row, and above the phase button rather than beside the save
+            // pair. Each of these replaces what is in the room -- the loaded boxes, then the
+            // navmesh over them -- which is a different kind of act from the two above, and
+            // worth not fat-fingering with a jittery hand ray aimed at a half-width target.
             var load = MakeButton(canvasRect, "Load Button", "LOAD SAVED SCAN",
-                                  16f, 372f, CanvasWidth - 32f, 54f);
+                                  16f, 390f, CanvasWidth - 32f, 54f);
+
+            var bake = MakeButton(canvasRect, "Bake Button", "BAKE NAVMESH",
+                                  16f, 450f, CanvasWidth - 32f, 54f);
 
             var nextPhase = MakeButton(canvasRect, "Next Phase Button",
                                        "NEXT PHASE <color=#7a7a80>(not wired)</color>",
-                                       16f, 432f, CanvasWidth - 32f, 54f);
+                                       16f, 510f, CanvasWidth - 32f, 54f);
 
             // Left interactable on purpose. A non-interactable Selectable receives no pointer
             // events at all -- no hover, no press, nothing -- which is exactly how a broken
@@ -174,7 +184,7 @@ namespace ConvaiRoomEditor
             if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
 
             BindPanelFields(panel, raycaster, counts, status, controls,
-                            save, recenter, load, nextPhase);
+                            save, recenter, load, bake, nextPhase);
             return root;
         }
 
@@ -186,7 +196,7 @@ namespace ConvaiRoomEditor
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
                                             Text counts, Text status, Text controls,
                                             Button save, Button recenter, Button load,
-                                            Button nextPhase)
+                                            Button bake, Button nextPhase)
         {
             var so = new SerializedObject(panel);
 
@@ -198,6 +208,7 @@ namespace ConvaiRoomEditor
             Assign(so, "_saveButton", save);
             Assign(so, "_recenterButton", recenter);
             Assign(so, "_loadButton", load);
+            Assign(so, "_bakeButton", bake);
             Assign(so, "_nextPhaseButton", nextPhase);
 
             so.ApplyModifiedPropertiesWithoutUndo();

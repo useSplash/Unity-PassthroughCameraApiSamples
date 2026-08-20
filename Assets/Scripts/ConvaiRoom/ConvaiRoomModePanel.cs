@@ -56,6 +56,12 @@ namespace ConvaiRoom
                  "the labels from here so it cannot go stale if someone rebinds them.")]
         public RoomScanController scanController;
 
+        [Tooltip("Bakes a walkable NavMesh from the replayed scan. Drives BAKE NAVMESH.")]
+        public RoomScanNavMeshBuilder navMeshBuilder;
+
+        [Tooltip("Optional. Draws the baked NavMesh so you can see it in the headset.")]
+        public NavMeshVisualizer navMeshVisualizer;
+
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -80,6 +86,9 @@ namespace ConvaiRoom
 
         [Tooltip("Replays whatever room_scan.json is on disk, without touching the live scan.")]
         [SerializeField] private Button _loadButton;
+
+        [Tooltip("Bakes the NavMesh from whatever the rebuilder is currently holding.")]
+        [SerializeField] private Button _bakeButton;
 
         [Tooltip("Styled as locked but left interactable on purpose -- see NextPhaseNotWired.")]
         [SerializeField] private Button _nextPhaseButton;
@@ -165,6 +174,8 @@ namespace ConvaiRoom
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
             if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
             if (scanController == null) scanController = FindAnyObjectByType<RoomScanController>();
+            if (navMeshBuilder == null) navMeshBuilder = FindAnyObjectByType<RoomScanNavMeshBuilder>();
+            if (navMeshVisualizer == null) navMeshVisualizer = FindAnyObjectByType<NavMeshVisualizer>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -214,6 +225,7 @@ namespace ConvaiRoom
             if (_saveButton == null) missing.Add(nameof(_saveButton));
             if (_recenterButton == null) missing.Add(nameof(_recenterButton));
             if (_loadButton == null) missing.Add(nameof(_loadButton));
+            if (_bakeButton == null) missing.Add(nameof(_bakeButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
 
             if (missing.Count == 0) return true;
@@ -237,6 +249,7 @@ namespace ConvaiRoom
             _saveButton.onClick.AddListener(SaveScan);
             _recenterButton.onClick.AddListener(Recenter);
             _loadButton.onClick.AddListener(LoadSavedScan);
+            _bakeButton.onClick.AddListener(BakeNavMesh);
             _nextPhaseButton.onClick.AddListener(NextPhaseNotWired);
         }
 
@@ -569,6 +582,48 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// Bakes a walkable NavMesh from whatever the rebuilder is currently holding.
+        ///
+        /// Takes the replayed scan rather than the live one on purpose: the bake needs the
+        /// room's floor polygon and a settled set of objects, and a cluster that is still
+        /// gaining observations is neither. Load a scan first -- and the refusal below says
+        /// so rather than baking an empty floor and reporting success.
+        /// </summary>
+        public void BakeNavMesh()
+        {
+            if (navMeshBuilder == null)
+            {
+                Report("bake failed: no navmesh builder in the scene");
+                Debug.LogError($"{Tag} No RoomScanNavMeshBuilder in the scene; nothing can bake.");
+                return;
+            }
+
+            if (rebuilder == null || rebuilder.Scan == null)
+            {
+                Report("bake needs a loaded scan -- press LOAD SAVED SCAN first");
+                Debug.LogWarning($"{Tag} Bake refused: the rebuilder is holding no scan, so " +
+                                 $"there is no floor to bake and nothing to walk around.");
+                return;
+            }
+
+            if (!navMeshBuilder.Build())
+            {
+                Report("bake FAILED -- see the log");
+                return;
+            }
+
+            // Redrawn straight after, not on the next tick. The wireframe is the only way to
+            // tell a good bake from a bad one in a headset, and a bake you cannot see yet
+            // reads as one that did not happen.
+            if (navMeshVisualizer != null) navMeshVisualizer.Refresh();
+
+            var triangles = navMeshVisualizer != null ? navMeshVisualizer.TriangleCount : 0;
+
+            Report($"baked navmesh: {navMeshBuilder.ObstacleCount} obstacles" +
+                   (triangles > 0 ? $", {triangles} tris" : ""));
+        }
+
+        /// <summary>
         /// Deliberately not wired. Phase 2 does not exist yet, and a button that silently does
         /// nothing is indistinguishable from a broken one -- so this acknowledges the press
         /// and says why. Do not delete this thinking it is dead code; delete it when you
@@ -792,6 +847,7 @@ namespace ConvaiRoom
 
             _builder.AppendLine(DiskLine());
             _builder.AppendLine(AnchorLine());
+            _builder.AppendLine(NavMeshLine());
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
 
@@ -823,6 +879,29 @@ namespace ConvaiRoom
             return room != null
                 ? "anchored  : <color=#7fd97f>MRUK room</color>"
                 : "anchored  : <color=#ffc44d>RAW WORLD SPACE</color>";
+        }
+
+        /// <summary>
+        /// Whether anything is baked, and how much of the room it covers.
+        ///
+        /// Obstacle count is the useful number rather than triangles: it is the one that says
+        /// the scan actually reached the bake. A floor with zero obstacles bakes perfectly
+        /// happily and means the furniture never made it through.
+        /// </summary>
+        private string NavMeshLine()
+        {
+            if (navMeshBuilder == null)
+                return "navmesh   : <color=#9a9aa0>no builder in the scene</color>";
+
+            if (!navMeshBuilder.HasNavMesh)
+                return "navmesh   : <color=#ffc44d>NO</color> - not baked yet";
+
+            var triangles = navMeshVisualizer != null && navMeshVisualizer.TriangleCount > 0
+                ? $", {navMeshVisualizer.TriangleCount} tris"
+                : "";
+
+            return $"navmesh   : <color=#7fd97f>YES</color> - " +
+                   $"{navMeshBuilder.ObstacleCount} obstacles{triangles}";
         }
 
         private string Kilobytes() => $"{_diskBytes / 1024f:0.0} KB";
