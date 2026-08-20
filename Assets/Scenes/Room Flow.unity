@@ -2071,6 +2071,14 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 1339185264}
     - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: detectionAgent
+      value: 
+      objectReference: {fileID: 2128446021}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: liveVisualizer
+      value: 
+      objectReference: {fileID: 1339185263}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
       propertyPath: navMeshBuilder
       value: 
       objectReference: {fileID: 1339185271}

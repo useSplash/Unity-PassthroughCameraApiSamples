@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Meta.XR.BuildingBlocks.AIBlocks;
 using Meta.XR.MRUtilityKit;
 using RoomScan;
 using UnityEngine;
@@ -62,6 +63,14 @@ namespace ConvaiRoom
         [Tooltip("Optional. Draws the baked NavMesh so you can see it in the headset.")]
         public NavMeshVisualizer navMeshVisualizer;
 
+        [Tooltip("The growing yellow/green wireframes. Switched off when scanning stops, " +
+                 "which is what actually clears them -- it destroys its boxes in OnDisable.")]
+        public LiveScanVisualizer liveVisualizer;
+
+        [Tooltip("The YOLO runner. Switched off when scanning stops so inference ends at the " +
+                 "source rather than producing detections nobody is looking at.")]
+        public ObjectDetectionAgent detectionAgent;
+
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -93,6 +102,10 @@ namespace ConvaiRoom
         [Tooltip("Quits the app. Sits away from the others in the title bar, and takes two " +
                  "presses -- see ExitApplication.")]
         [SerializeField] private Button _exitButton;
+
+        [Tooltip("Starts and stops scanning. Its label is the action it will take, not the " +
+                 "state it is in -- see ToggleScanning.")]
+        [SerializeField] private Button _scanToggleButton;
 
         [Tooltip("Styled as locked but left interactable on purpose -- see NextPhaseNotWired.")]
         [SerializeField] private Button _nextPhaseButton;
@@ -178,6 +191,13 @@ namespace ConvaiRoom
         /// </summary>
         private float _exitArmedUntil = float.NegativeInfinity;
 
+        /// <summary>
+        /// Whether detection is running. Starts true because phase 1 opens straight into a
+        /// scan -- see ApplyScanning in Awake, which pushes this onto the scene rather than
+        /// trusting the components to already agree with it.
+        /// </summary>
+        private bool _scanning = true;
+
         // Redraw is gated: the text mesh is rebuilt when something displayed actually
         // changed, and otherwise at most once a second so the "2m ago" age still ticks.
         private bool _dirty = true;
@@ -192,6 +212,8 @@ namespace ConvaiRoom
             if (scanController == null) scanController = FindAnyObjectByType<RoomScanController>();
             if (navMeshBuilder == null) navMeshBuilder = FindAnyObjectByType<RoomScanNavMeshBuilder>();
             if (navMeshVisualizer == null) navMeshVisualizer = FindAnyObjectByType<NavMeshVisualizer>();
+            if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
+            if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -215,6 +237,11 @@ namespace ConvaiRoom
 
             BindButtons();
             WriteControls();
+
+            // Pushes the scene into whatever _scanning says rather than assuming it already
+            // agrees. The three components have their own enabled flags in the scene, and a
+            // panel that says SCANNING while the agent is switched off is worse than useless.
+            ApplyScanning(_scanning);
             _cursor = ConvaiRoomLaserCursor.Create();
 
             // Hidden until MRUK reports in, so the panel does not flash up somewhere
@@ -243,6 +270,7 @@ namespace ConvaiRoom
             if (_loadButton == null) missing.Add(nameof(_loadButton));
             if (_bakeButton == null) missing.Add(nameof(_bakeButton));
             if (_exitButton == null) missing.Add(nameof(_exitButton));
+            if (_scanToggleButton == null) missing.Add(nameof(_scanToggleButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
 
             if (missing.Count == 0) return true;
@@ -268,6 +296,7 @@ namespace ConvaiRoom
             _loadButton.onClick.AddListener(LoadSavedScan);
             _bakeButton.onClick.AddListener(BakeNavMesh);
             _exitButton.onClick.AddListener(ExitApplication);
+            _scanToggleButton.onClick.AddListener(ToggleScanning);
             _nextPhaseButton.onClick.AddListener(NextPhaseNotWired);
         }
 
@@ -642,6 +671,67 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// Starts and stops scanning.
+        ///
+        /// Stops it at the source rather than just hiding the result. Left running, the YOLO
+        /// agent costs an inference pass every frame producing detections nobody is looking
+        /// at, and on a headset that is heat and battery you can feel.
+        ///
+        /// Three things move together, and each is load-bearing:
+        ///   - the detection agent, which is where the cost actually is;
+        ///   - LiveScanVisualizer, whose OnDisable destroys its boxes -- switching it off is
+        ///     what clears the yellow and green wireframes rather than merely stopping new
+        ///     ones appearing;
+        ///   - the recorder, which stops accumulating.
+        ///
+        /// What is deliberately NOT touched: RoomScanRebuilder and its replayed boxes, the
+        /// navmesh, and the scan already held in memory. Stopping is a pause, not a discard --
+        /// SAVE SCAN still writes exactly what was collected up to the moment you stopped,
+        /// which is the whole reason you would want to stop before saving.
+        /// </summary>
+        public void ToggleScanning()
+        {
+            ApplyScanning(!_scanning);
+
+            Report(_scanning
+                ? "scanning resumed"
+                : $"scanning stopped -- {_ready} ready / {_tracked} tracked kept");
+        }
+
+        private void ApplyScanning(bool scanning)
+        {
+            _scanning = scanning;
+
+            if (detectionAgent != null) detectionAgent.enabled = scanning;
+            if (liveVisualizer != null) liveVisualizer.enabled = scanning;
+            if (recorder != null) recorder.enabled = scanning;
+
+            UpdateScanToggleLabel();
+            _dirty = true;
+
+            Debug.Log($"{Tag} Scanning -> {scanning} " +
+                      $"(agent={(detectionAgent != null ? scanning.ToString() : "absent")} " +
+                      $"liveBoxes={(liveVisualizer != null ? scanning.ToString() : "absent")} " +
+                      $"recorder={(recorder != null ? scanning.ToString() : "absent")}).");
+        }
+
+        /// <summary>
+        /// Labels the button with what pressing it will DO, not what the state currently is.
+        ///
+        /// An earlier panel avoided toggles entirely, using separate Scan and Talk buttons so
+        /// there was no question which way one would flip. That worry was right; the answer
+        /// here is to name the action instead, which cannot be read two ways. The current
+        /// state is on the status line, where state belongs.
+        /// </summary>
+        private void UpdateScanToggleLabel()
+        {
+            if (_scanToggleButton == null) return;
+
+            var label = _scanToggleButton.GetComponentInChildren<Text>();
+            if (label != null) label.text = _scanning ? "STOP SCANNING" : "START SCANNING";
+        }
+
+        /// <summary>
         /// Quits the app, on the second press.
         ///
         /// Two presses rather than one because of what a misfire costs here. A hand ray
@@ -902,6 +992,10 @@ namespace ConvaiRoom
 
             // Read the thresholds off the recorder rather than hardcoding them, so this line
             // cannot go stale if someone tunes the clustering.
+            _builder.AppendLine(_scanning
+                ? "scanning  : <color=#7fd97f>ON</color> - boxes grow as objects are seen"
+                : "scanning  : <color=#ffc44d>STOPPED</color> - nothing new is being recorded");
+
             if (recorder != null)
                 _builder.AppendLine($"ready = seen {recorder.minObservations}+ times, " +
                                     $"under {recorder.maxObjectSize} m");

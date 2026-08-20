@@ -28,7 +28,7 @@ namespace ConvaiRoomEditor
         // Authoring units. The canvas is laid out in these and then scaled to metres, so the
         // numbers below read like ordinary UI pixels rather than millimetres.
         private const float CanvasWidth = 420f;
-        private const float CanvasHeight = 580f;
+        private const float CanvasHeight = 660f;
 
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
@@ -162,29 +162,36 @@ namespace ConvaiRoomEditor
             var counts = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
                                   34, TextAnchor.MiddleLeft);
 
-            // 136 rather than 118 -- the readout gained a navmesh line.
-            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 136f,
+            // Seven lines now: scanning, ready-rule, scan file, anchored, navmesh, a blank,
+            // and the last-action line.
+            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 154f,
                                   16, TextAnchor.UpperLeft);
 
-            var controls = MakeText(canvasRect, "Controls", 16f, 234f, CanvasWidth - 32f, 88f,
+            var controls = MakeText(canvasRect, "Controls", 16f, 252f, CanvasWidth - 32f, 88f,
                                     16, TextAnchor.UpperLeft);
 
-            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 330f, 186f, 54f);
-            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 330f, 186f, 54f);
+            // Top of the stack, because it is a mode rather than an action -- everything below
+            // it operates on whatever this one has or has not been collecting. The label is
+            // rewritten at runtime to name the action; this is only the starting text.
+            var scanToggle = MakeButton(canvasRect, "Scan Toggle Button", "STOP SCANNING",
+                                        16f, 348f, CanvasWidth - 32f, 54f);
+
+            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 408f, 186f, 54f);
+            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 408f, 186f, 54f);
 
             // Full width, one per row, and above the phase button rather than beside the save
             // pair. Each of these replaces what is in the room -- the loaded boxes, then the
             // navmesh over them -- which is a different kind of act from the two above, and
             // worth not fat-fingering with a jittery hand ray aimed at a half-width target.
             var load = MakeButton(canvasRect, "Load Button", "LOAD SAVED SCAN",
-                                  16f, 390f, CanvasWidth - 32f, 54f);
+                                  16f, 468f, CanvasWidth - 32f, 54f);
 
             var bake = MakeButton(canvasRect, "Bake Button", "BAKE NAVMESH",
-                                  16f, 450f, CanvasWidth - 32f, 54f);
+                                  16f, 528f, CanvasWidth - 32f, 54f);
 
             var nextPhase = MakeButton(canvasRect, "Next Phase Button",
                                        "NEXT PHASE <color=#7a7a80>(not wired)</color>",
-                                       16f, 510f, CanvasWidth - 32f, 54f);
+                                       16f, 588f, CanvasWidth - 32f, 54f);
 
             // Left interactable on purpose. A non-interactable Selectable receives no pointer
             // events at all -- no hover, no press, nothing -- which is exactly how a broken
@@ -195,7 +202,7 @@ namespace ConvaiRoomEditor
             var nextPhaseLabel = nextPhase.GetComponentInChildren<Text>();
             if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
 
-            BindPanelFields(panel, raycaster, counts, status, controls,
+            BindPanelFields(panel, raycaster, counts, status, controls, scanToggle,
                             save, recenter, load, bake, exit, nextPhase);
             return root;
         }
@@ -207,6 +214,7 @@ namespace ConvaiRoomEditor
         /// </summary>
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
                                             Text counts, Text status, Text controls,
+                                            Button scanToggle,
                                             Button save, Button recenter, Button load,
                                             Button bake, Button exit, Button nextPhase)
         {
@@ -217,6 +225,7 @@ namespace ConvaiRoomEditor
             Assign(so, "_countsText", counts);
             Assign(so, "_statusText", status);
             Assign(so, "_controlsText", controls);
+            Assign(so, "_scanToggleButton", scanToggle);
             Assign(so, "_saveButton", save);
             Assign(so, "_recenterButton", recenter);
             Assign(so, "_loadButton", load);
