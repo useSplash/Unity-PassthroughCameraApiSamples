@@ -23,6 +23,23 @@ namespace ConvaiRoom
         private LineRenderer _line;
         private Transform _dot;
 
+        /// <summary>
+        /// When the input module last pushed a pose into us. The beam is shown only while
+        /// this is fresh.
+        ///
+        /// This replaces an earlier check on OVRInput.GetActiveController(), which was wrong
+        /// in both directions: it hid the beam whenever hand tracking was driving the pointer
+        /// (hands are not a "controller"), and it kept the beam visible whenever a controller
+        /// was merely connected, even if nothing was actually driving the cursor. Keying off
+        /// the drive itself works for controllers and hands alike, and still parks the beam
+        /// when the pointer genuinely stops.
+        /// </summary>
+        private float _lastDrivenTime = float.NegativeInfinity;
+
+        [Tooltip("How long the beam keeps drawing after the last pose it was given. Covers " +
+                 "the odd dropped frame without freezing a stale beam in mid-air.")]
+        public float driveTimeout = 0.25f;
+
         /// <summary>Creates the laser on its own root GameObject.</summary>
         public static ConvaiRoomLaserCursor Create()
         {
@@ -85,6 +102,8 @@ namespace ConvaiRoom
         {
             if (_line == null) return;
 
+            _lastDrivenTime = Time.unscaledTime;
+
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
 
@@ -93,10 +112,10 @@ namespace ConvaiRoom
 
         private void LateUpdate()
         {
-            var hasController = OVRInput.GetActiveController() != OVRInput.Controller.None;
+            var driven = Time.unscaledTime - _lastDrivenTime <= driveTimeout;
 
-            if (_line != null) _line.enabled = hasController;
-            if (_dot != null) _dot.gameObject.SetActive(hasController);
+            if (_line != null) _line.enabled = driven;
+            if (_dot != null) _dot.gameObject.SetActive(driven);
         }
     }
 }

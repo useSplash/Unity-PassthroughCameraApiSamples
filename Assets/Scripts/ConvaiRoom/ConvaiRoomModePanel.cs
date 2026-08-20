@@ -507,17 +507,20 @@ namespace ConvaiRoom
             _countsText = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
                                    34, TextAnchor.MiddleLeft);
 
-            _statusText = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 126f,
+            _statusText = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 118f,
                                    16, TextAnchor.UpperLeft);
 
+            // 54 units tall rather than 46. On a 0.42 m canvas that is roughly 2.5 cm in the
+            // world -- worth the extra height because a hand ray jitters noticeably more than
+            // a controller ray, and a button you cannot reliably hit reads as a broken one.
             MakeButton(canvasRect, "Save Button", "SAVE SCAN",
-                       16f, 224f, 186f, 46f, SaveScan);
+                       16f, 214f, 186f, 54f, SaveScan);
             MakeButton(canvasRect, "Recenter Button", "RECENTER",
-                       218f, 224f, 186f, 46f, Recenter);
+                       218f, 214f, 186f, 54f, Recenter);
 
             var nextPhase = MakeButton(canvasRect, "Next Phase Button",
                                        "NEXT PHASE <color=#7a7a80>(not wired)</color>",
-                                       16f, 278f, CanvasWidth - 32f, 46f, NextPhaseNotWired);
+                                       16f, 274f, CanvasWidth - 32f, 54f, NextPhaseNotWired);
 
             // Left interactable on purpose. A non-interactable Selectable receives no pointer
             // events at all -- no hover, no press, nothing -- which is exactly how a broken
@@ -538,11 +541,26 @@ namespace ConvaiRoom
         /// </summary>
         private void EnsurePointer(OVRRaycaster raycaster)
         {
-            var module = FindAnyObjectByType<OVRInputModule>();
+            // OVRInputModule.instance FIRST, and it matters. OVRHand and OVRControllerHelper
+            // register themselves as input sources against that static singleton, and
+            // Process() drives the cursor from whichever registered source is active --
+            // preferring them over the legacy rayTransform path entirely.
+            //
+            // The previous version looked the module up with FindAnyObjectByType, which skips
+            // inactive objects. Miss the SDK's module that way and we build a SECOND one:
+            // the hands and controllers stay registered with the first, while our cursor and
+            // raycaster get attached to the second. Nothing then drives the beam and no click
+            // ever lands, from controllers or hands alike -- which is exactly the "no rays at
+            // all" this used to produce on device.
+            var module = OVRInputModule.instance;
+            var created = false;
+
+            if (module == null)
+                module = FindAnyObjectByType<OVRInputModule>(FindObjectsInactive.Include);
 
             if (module == null)
             {
-                var eventSystem = FindAnyObjectByType<EventSystem>();
+                var eventSystem = FindAnyObjectByType<EventSystem>(FindObjectsInactive.Include);
                 var host = eventSystem != null ? eventSystem.gameObject : new GameObject("EventSystem");
 
                 if (eventSystem == null) host.AddComponent<EventSystem>();
@@ -553,8 +571,18 @@ namespace ConvaiRoom
                 if (standalone != null) standalone.enabled = false;
 
                 module = host.AddComponent<OVRInputModule>();
+                created = true;
             }
 
+            // A module on a deactivated object never runs Process(), so it would look wired
+            // up and still do nothing.
+            if (!module.gameObject.activeInHierarchy) module.gameObject.SetActive(true);
+            module.enabled = true;
+
+            // Still set, but only as the fallback for when no controller or hand has
+            // registered. Registered sources supply their own pointer pose and press --
+            // the controller's trigger, or a hand's index pinch -- so hands need no
+            // separate wiring here.
             module.rayTransform = ControllerAnchor();
             module.joyPadClickButton = clickButton;
             module.m_Cursor = _cursor;
@@ -564,6 +592,10 @@ namespace ConvaiRoom
             // click of the session has nothing to hit.
             module.activeGraphicRaycaster = raycaster;
             raycaster.pointer = _cursor.gameObject;
+
+            Debug.Log($"{Tag} Pointer bound to OVRInputModule on '{module.gameObject.name}' " +
+                      $"(created={created} isSingleton={ReferenceEquals(module, OVRInputModule.instance)} " +
+                      $"active={module.gameObject.activeInHierarchy} ray={module.rayTransform?.name ?? "NONE"}).");
         }
 
         private Transform ControllerAnchor()
