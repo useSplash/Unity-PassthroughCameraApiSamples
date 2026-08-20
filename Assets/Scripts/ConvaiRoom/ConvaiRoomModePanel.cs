@@ -6,7 +6,6 @@ using System.Text;
 using Meta.XR.MRUtilityKit;
 using RoomScan;
 using UnityEngine;
-using UnityEngine.Events;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
@@ -25,15 +24,19 @@ namespace ConvaiRoom
     /// version followed the head every frame, which is unreadable to look at and makes the
     /// panel impossible to aim at with a laser -- it moves with the thing you are aiming.
     /// Use Recenter to call it back instead.
+    ///
+    /// The layout lives in the Scan Panel prefab, not in here. This class only reads and
+    /// writes the pieces it is handed: an earlier version built the whole canvas in code,
+    /// which meant every spacing tweak was a recompile and a redeploy to see. Restyle the
+    /// prefab freely -- move things, resize them, recolour them, swap the fonts. The only
+    /// contract is that the references below stay assigned.
+    ///
+    /// Tools > Convai Room > Bake Scan Panel Prefab regenerates a stock panel if the prefab
+    /// is ever lost.
     /// </summary>
     public class ConvaiRoomModePanel : MonoBehaviour
     {
         private const string Tag = "[ScanPanel]";
-
-        // The canvas is authored in these units and then scaled down to metres, so the
-        // layout numbers below read like ordinary UI pixels instead of millimetres.
-        private const float CanvasWidth = 420f;
-        private const float CanvasHeight = 340f;
 
         /// <summary>What the scan file on disk is currently worth.</summary>
         private enum DiskState
@@ -46,6 +49,27 @@ namespace ConvaiRoom
         [Header("Wiring (left empty, this is found in the scene)")]
         public ObjectScanRecorder recorder;
 
+        [Header("Panel UI (all from the prefab, all required)")]
+        [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
+                 "reports its room, so it must be the panel's canvas rather than a child of it.")]
+        [SerializeField] private OVRRaycaster _raycaster;
+
+        // The title is deliberately not referenced here. It is a static label -- the prefab
+        // owns its text and colour outright, and phase 2 can add a field when it actually
+        // needs to change it.
+
+        [Tooltip("The big 'N ready / N tracked' line. Overwritten every redraw.")]
+        [SerializeField] private Text _countsText;
+
+        [Tooltip("The multi-line status block. Overwritten every redraw, rich text and all.")]
+        [SerializeField] private Text _statusText;
+
+        [SerializeField] private Button _saveButton;
+        [SerializeField] private Button _recenterButton;
+
+        [Tooltip("Styled as locked but left interactable on purpose -- see NextPhaseNotWired.")]
+        [SerializeField] private Button _nextPhaseButton;
+
         [Header("Panel placement")]
         [Tooltip("Drop the panel in front of the player once MRUK reports its scene. Once " +
                  "placed it stays put -- it never follows your head.")]
@@ -53,9 +77,6 @@ namespace ConvaiRoom
 
         public float distanceFromPlayer = 1.2f;
         public float heightOffset = -0.25f;
-
-        [Tooltip("Physical width of the panel in metres. Height follows the same scale.")]
-        public float panelWidth = 0.42f;
 
         [Tooltip("How long to wait for MRUK before placing the panel anyway. Lets the scene " +
                  "run in the Editor with no headset attached.")]
@@ -74,19 +95,29 @@ namespace ConvaiRoom
         [Tooltip("Seconds between scan-file checks on disk.")]
         public float diskRefreshInterval = 1f;
 
-        private static readonly Color ActionButton = new Color(0.22f, 0.28f, 0.34f, 0.92f);
-        private static readonly Color LockedButton = new Color(0.16f, 0.16f, 0.18f, 0.75f);
-        private static readonly Color LockedLabel = new Color(0.55f, 0.55f, 0.58f);
+        [Header("Counts colour")]
+        [Tooltip("The counts line is the one piece of styling the panel still drives, because " +
+                 "the colour carries meaning: this one when something is ready to export...")]
+        [SerializeField] private Color countsReadyColor = new Color(0.5f, 0.9f, 1f);
 
-        private Text _titleText;
-        private Text _countsText;
-        private Text _statusText;
-        private GameObject _canvasGo;
-        private OVRRaycaster _raycaster;
+        [Tooltip("...and this one when nothing is. Setting the colour on the Text in the " +
+                 "prefab will not stick -- change these instead.")]
+        [SerializeField] private Color countsIdleColor = new Color(0.75f, 0.75f, 0.78f);
+
         private ConvaiRoomLaserCursor _cursor;
+
+        /// <summary>The canvas GameObject, which is always the raycaster's own.</summary>
+        private GameObject _canvasGo;
 
         private bool _canMove = true;
         private bool _hasSpawned;
+
+        /// <summary>
+        /// False when the prefab references are not all assigned. Everything downstream is
+        /// skipped rather than throwing a null reference per frame, which on a headset buries
+        /// the one error that says what is actually wrong.
+        /// </summary>
+        private bool _wired;
 
         // Counts. Both come from one snapshot pass so they can never disagree.
         private readonly List<ObjectScanRecorder.ClusterView> _snapshot =
@@ -132,11 +163,61 @@ namespace ConvaiRoom
                 _canMove = false;
             }
 
-            BuildUi();
+            _wired = ValidateWiring();
+            if (!_wired) return;
+
+            // The raycaster requires a Canvas on its own GameObject, so these can never be two
+            // different objects -- one field instead of two, and no way to wire them apart.
+            _canvasGo = _raycaster.gameObject;
+
+            BindButtons();
+            _cursor = ConvaiRoomLaserCursor.Create();
 
             // Hidden until MRUK reports in, so the panel does not flash up somewhere
             // arbitrary and then jump once the room arrives.
             _canvasGo.SetActive(false);
+        }
+
+        /// <summary>
+        /// Reports every unassigned reference in one go, naming the fields.
+        ///
+        /// One message rather than a guard at each use site: a panel that is missing its
+        /// prefab wiring is not partially broken, it is broken, and the useful thing to know
+        /// on a headset is the whole list at once rather than whichever field the next frame
+        /// happened to touch first.
+        /// </summary>
+        private bool ValidateWiring()
+        {
+            var missing = new List<string>();
+
+            if (_raycaster == null) missing.Add(nameof(_raycaster));
+            if (_countsText == null) missing.Add(nameof(_countsText));
+            if (_statusText == null) missing.Add(nameof(_statusText));
+            if (_saveButton == null) missing.Add(nameof(_saveButton));
+            if (_recenterButton == null) missing.Add(nameof(_recenterButton));
+            if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
+
+            if (missing.Count == 0) return true;
+
+            Debug.LogError($"{Tag} The panel is not wired up: {string.Join(", ", missing)} " +
+                           $"{(missing.Count == 1 ? "is" : "are")} unassigned. This component " +
+                           $"expects to live on the Scan Panel prefab. The panel will not be " +
+                           $"shown. Re-bake a stock one from Tools > Convai Room > Bake Scan " +
+                           $"Panel Prefab if it has been lost.", this);
+            return false;
+        }
+
+        /// <summary>
+        /// Binds the button handlers here rather than through the Inspector's onClick lists.
+        /// A UnityEvent wired in the editor holds the method by name, so renaming one of these
+        /// silently unbinds the button and the only symptom is a press that does nothing on a
+        /// headset. Bound this way, the same rename is a compile error.
+        /// </summary>
+        private void BindButtons()
+        {
+            _saveButton.onClick.AddListener(SaveScan);
+            _recenterButton.onClick.AddListener(Recenter);
+            _nextPhaseButton.onClick.AddListener(NextPhaseNotWired);
         }
 
         private void OnEnable()
@@ -151,6 +232,8 @@ namespace ConvaiRoom
 
         private void Start()
         {
+            if (!_wired) return;
+
             ReadDiskObjectCountOnce();
             RefreshDiskState();
             PollCounts();
@@ -217,6 +300,8 @@ namespace ConvaiRoom
 
         private void Update()
         {
+            if (!_wired) return;
+
             if (Time.unscaledTime >= _nextCountsPoll)
             {
                 _nextCountsPoll = Time.unscaledTime + countsRefreshInterval;
@@ -476,63 +561,8 @@ namespace ConvaiRoom
         }
 
         // -----------------------------------------------------------------
-        // Panel construction
+        // Pointer plumbing
         // -----------------------------------------------------------------
-
-        private void BuildUi()
-        {
-            _canvasGo = new GameObject("Panel Canvas", typeof(RectTransform));
-            _canvasGo.transform.SetParent(transform, false);
-
-            var canvas = _canvasGo.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-
-            var canvasRect = (RectTransform)_canvasGo.transform;
-            canvasRect.sizeDelta = new Vector2(CanvasWidth, CanvasHeight);
-            canvasRect.localScale = Vector3.one * (panelWidth / CanvasWidth);
-
-            // OVRRaycaster rather than the stock GraphicRaycaster: the stock one only
-            // understands a screen-space mouse and cannot be driven by a tracked ray.
-            _raycaster = _canvasGo.AddComponent<OVRRaycaster>();
-
-            var background = MakeRect(canvasRect, "Background", 0f, 0f, CanvasWidth, CanvasHeight)
-                .gameObject.AddComponent<Image>();
-            background.color = new Color(0.05f, 0.07f, 0.10f, 0.85f);
-
-            _titleText = MakeText(canvasRect, "Title", 16f, 12f, CanvasWidth - 32f, 28f,
-                                  24, TextAnchor.MiddleLeft);
-            _titleText.text = "PHASE 1 - SCAN";
-            _titleText.color = new Color(1f, 0.85f, 0.3f);
-
-            _countsText = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
-                                   34, TextAnchor.MiddleLeft);
-
-            _statusText = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 118f,
-                                   16, TextAnchor.UpperLeft);
-
-            // 54 units tall rather than 46. On a 0.42 m canvas that is roughly 2.5 cm in the
-            // world -- worth the extra height because a hand ray jitters noticeably more than
-            // a controller ray, and a button you cannot reliably hit reads as a broken one.
-            MakeButton(canvasRect, "Save Button", "SAVE SCAN",
-                       16f, 214f, 186f, 54f, SaveScan);
-            MakeButton(canvasRect, "Recenter Button", "RECENTER",
-                       218f, 214f, 186f, 54f, Recenter);
-
-            var nextPhase = MakeButton(canvasRect, "Next Phase Button",
-                                       "NEXT PHASE <color=#7a7a80>(not wired)</color>",
-                                       16f, 274f, CanvasWidth - 32f, 54f, NextPhaseNotWired);
-
-            // Left interactable on purpose. A non-interactable Selectable receives no pointer
-            // events at all -- no hover, no press, nothing -- which is exactly how a broken
-            // button behaves. It is styled as locked instead, and says so when pressed.
-            var nextPhaseImage = nextPhase.targetGraphic as Image;
-            if (nextPhaseImage != null) nextPhaseImage.color = LockedButton;
-
-            var nextPhaseLabel = nextPhase.GetComponentInChildren<Text>();
-            if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
-
-            _cursor = ConvaiRoomLaserCursor.Create();
-        }
 
         /// <summary>
         /// Makes sure something in the scene is actually driving UI events from a tracked
@@ -614,93 +644,14 @@ namespace ConvaiRoom
             return rig.centerEyeAnchor;
         }
 
-        private RectTransform MakeRect(Transform parent, string name,
-                                       float x, float y, float width, float height)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-
-            var rect = (RectTransform)go.transform;
-
-            // Anchored to the top-left corner so the layout numbers above read as an ordinary
-            // top-down stack rather than offsets from the centre.
-            rect.anchorMin = new Vector2(0f, 1f);
-            rect.anchorMax = new Vector2(0f, 1f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = new Vector2(x, -y);
-            rect.sizeDelta = new Vector2(width, height);
-            return rect;
-        }
-
-        private Text MakeText(Transform parent, string name, float x, float y,
-                              float width, float height, int fontSize, TextAnchor alignment)
-        {
-            var rect = MakeRect(parent, name, x, y, width, height);
-
-            var text = rect.gameObject.AddComponent<Text>();
-            text.font = ScanLabel.BuiltinFont();
-            text.fontSize = fontSize;
-            text.alignment = alignment;
-            text.color = Color.white;
-            text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-
-            // Labels never take the click; the button underneath them does.
-            text.raycastTarget = false;
-            return text;
-        }
-
-        /// <summary>
-        /// Builds one panel button. Returns the Button rather than its Image so callers can
-        /// reach both the tint target and the label -- the locked next-phase button needs to
-        /// recolour both.
-        /// </summary>
-        private Button MakeButton(Transform parent, string name, string label,
-                                  float x, float y, float width, float height, UnityAction onClick)
-        {
-            var rect = MakeRect(parent, name, x, y, width, height);
-
-            var image = rect.gameObject.AddComponent<Image>();
-            image.color = ActionButton;
-
-            var button = rect.gameObject.AddComponent<Button>();
-            button.targetGraphic = image;
-            button.colors = ButtonColors();
-            button.onClick.AddListener(onClick);
-
-            MakeText(rect, "label", 0f, 0f, width, height, 20, TextAnchor.MiddleCenter).text = label;
-            return button;
-        }
-
-        private static ColorBlock ButtonColors()
-        {
-            var colors = ColorBlock.defaultColorBlock;
-
-            // ColorTint multiplies the graphic's own colour, so white leaves the base tint
-            // alone and the per-button colours above still show through.
-            colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(1.25f, 1.25f, 1.25f, 1f);
-            colors.pressedColor = new Color(0.65f, 0.65f, 0.65f, 1f);
-            colors.selectedColor = Color.white;
-            colors.fadeDuration = 0.06f;
-            return colors;
-        }
-
         // -----------------------------------------------------------------
         // Drawing
         // -----------------------------------------------------------------
 
         private void Redraw()
         {
-            if (_countsText != null)
-            {
-                _countsText.text = $"{_ready} ready / {_tracked} tracked";
-                _countsText.color = _ready > 0
-                    ? new Color(0.5f, 0.9f, 1f)
-                    : new Color(0.75f, 0.75f, 0.78f);
-            }
-
-            if (_statusText == null) return;
+            _countsText.text = $"{_ready} ready / {_tracked} tracked";
+            _countsText.color = _ready > 0 ? countsReadyColor : countsIdleColor;
 
             _builder.Clear();
 
