@@ -19,7 +19,8 @@ namespace ConvaiRoom
     /// </summary>
     [RequireComponent(typeof(RectTransform))]
     public class ConvaiRoomPanelDragger : MonoBehaviour,
-                                          IBeginDragHandler, IDragHandler, IEndDragHandler
+                                          IBeginDragHandler, IDragHandler, IEndDragHandler,
+                                          IPointerDownHandler
     {
         private const string Tag = "[ScanPanel]";
 
@@ -38,6 +39,11 @@ namespace ConvaiRoom
         [Tooltip("Keep the panel turned toward you while it moves. Off, it holds the facing it " +
                  "had when grabbed and you can drag it edge-on to yourself.")]
         public bool facePlayerWhileDragging = true;
+
+        [Tooltip("Logs every step of a drag attempt. On while this is being made to work on " +
+                 "device -- the failure modes are indistinguishable from the outside, and each " +
+                 "one lives in a different place.")]
+        public bool verboseLogging = true;
 
         private ConvaiRoomModePanel _panel;
 
@@ -58,10 +64,29 @@ namespace ConvaiRoom
             if (target == null)
                 Debug.LogError($"{Tag} The dragger has no target and found no " +
                                $"ConvaiRoomModePanel above it, so the panel cannot be moved.");
+            else if (verboseLogging)
+                Debug.Log($"{Tag} Dragger awake on '{name}', moving '{target.name}'.");
+        }
+
+        /// <summary>
+        /// Only here to prove the background is receiving pointer events at all. If this logs
+        /// and OnBeginDrag never does, the press is arriving and the drag is being lost between
+        /// the module and here; if this never logs, the ray is not hitting the background and
+        /// nothing downstream matters.
+        /// </summary>
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            if (!verboseLogging) return;
+
+            Debug.Log($"{Tag} Background pressed (vrPointer={eventData.IsVRPointer()} " +
+                      $"drag={(eventData.pointerDrag != null ? eventData.pointerDrag.name : "NONE")} " +
+                      $"cam={(eventData.pressEventCamera != null ? eventData.pressEventCamera.name : "NULL")}).");
         }
 
         public void OnBeginDrag(PointerEventData eventData)
         {
+            if (verboseLogging) Debug.Log($"{Tag} OnBeginDrag.");
+
             if (!CanDrag(eventData, out var ray)) return;
 
             _dragging = true;
@@ -92,27 +117,48 @@ namespace ConvaiRoom
             if (!_dragging) return;
 
             _dragging = false;
-            Debug.Log($"{Tag} Panel dragged to {target.position:F2}.");
+            _lastRefusal = null;
+
+            if (verboseLogging) Debug.Log($"{Tag} Panel dragged to {target.position:F2}.");
         }
 
         private bool CanDrag(PointerEventData eventData, out Ray ray)
         {
             ray = default;
 
-            if (target == null) return false;
+            if (target == null) return Refuse("no target");
 
             // The panel refuses to move when it shares a GameObject with the rebuilder,
             // because moving it would drag every replayed box along with it. Dragging has to
             // honour that for the same reason Recenter does.
-            if (_panel != null && !_panel.CanMove) return false;
+            if (_panel != null && !_panel.CanMove) return Refuse("panel reports CanMove false");
 
             // A mouse in the Editor produces a plain PointerEventData with no world ray, and
             // there is nothing sensible to drag a world-space panel by in that case.
-            if (!eventData.IsVRPointer()) return false;
+            if (!eventData.IsVRPointer()) return Refuse("not a VR pointer");
 
             ray = eventData.GetRay();
-            return ray.direction.sqrMagnitude > 1e-6f;
+
+            if (ray.direction.sqrMagnitude <= 1e-6f) return Refuse("ray has no direction");
+            return true;
         }
+
+        /// <summary>
+        /// Logs why a drag was turned down, once rather than every frame -- OnDrag fires
+        /// continuously and a refusal repeated at frame rate buries the log it is meant to help.
+        /// </summary>
+        private bool Refuse(string reason)
+        {
+            if (verboseLogging && reason != _lastRefusal)
+            {
+                _lastRefusal = reason;
+                Debug.LogWarning($"{Tag} Drag refused: {reason}.");
+            }
+
+            return false;
+        }
+
+        private string _lastRefusal;
 
         /// <summary>
         /// Turns the readable face toward the player. Uses the direction from the head to the
