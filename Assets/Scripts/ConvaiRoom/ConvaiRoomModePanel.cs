@@ -609,6 +609,20 @@ namespace ConvaiRoom
             if (!module.gameObject.activeInHierarchy) module.gameObject.SetActive(true);
             module.enabled = true;
 
+            // THE reason there was no laser on device. OVRInputModule.IsModuleSupported()
+            // returns "allowActivationOnMobileDevice || Input.mousePresent", and EventSystem
+            // will only ever select a module that reports itself supported. The field is
+            // false by default and the only thing that sets it true is the SDK's Reset(),
+            // which is #if UNITY_EDITOR and only runs when a human adds the component in the
+            // Inspector -- AddComponent at runtime never calls it.
+            //
+            // So on a headset, where there is no mouse, the module we built was never chosen,
+            // Process() never ran, and nothing drove the cursor or delivered a click. In the
+            // Editor Input.mousePresent is true, which is why this looked fine right up until
+            // it was tried on device. Forced on every module we touch, found or created,
+            // because an authored one with the box unticked is the same dead end.
+            module.allowActivationOnMobileDevice = true;
+
             // Still set, but only as the fallback for when no controller or hand has
             // registered. Registered sources supply their own pointer pose and press --
             // the controller's trigger, or a hand's index pinch -- so hands need no
@@ -625,7 +639,8 @@ namespace ConvaiRoom
 
             Debug.Log($"{Tag} Pointer bound to OVRInputModule on '{module.gameObject.name}' " +
                       $"(created={created} isSingleton={ReferenceEquals(module, OVRInputModule.instance)} " +
-                      $"active={module.gameObject.activeInHierarchy} ray={module.rayTransform?.name ?? "NONE"}).");
+                      $"active={module.gameObject.activeInHierarchy} ray={module.rayTransform?.name ?? "NONE"} " +
+                      $"supported={module.IsModuleSupported()} mouse={Input.mousePresent}).");
         }
 
         private Transform ControllerAnchor()
