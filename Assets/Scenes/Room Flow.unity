@@ -2066,6 +2066,14 @@ PrefabInstance:
       propertyPath: recorder
       value: 
       objectReference: {fileID: 1339185259}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: rebuilder
+      value: 
+      objectReference: {fileID: 1339185264}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: scanController
+      value: 
+      objectReference: {fileID: 1339185258}
     - target: {fileID: 7503017653591259767, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
       propertyPath: m_LocalPosition.x
       value: 1
@@ -7516,6 +7524,9 @@ MonoBehaviour:
   labelHeightOffset: 0.1
   jsonPath: 
   rebuildOnStart: 0
+  alignToSavedWalls: 1
+  maxWallError: 0.35
+  ambiguityMargin: 0.1
 --- !u!114 &1339185265
 MonoBehaviour:
   m_ObjectHideFlags: 0

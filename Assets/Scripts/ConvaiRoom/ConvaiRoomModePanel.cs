@@ -49,6 +49,13 @@ namespace ConvaiRoom
         [Header("Wiring (left empty, this is found in the scene)")]
         public ObjectScanRecorder recorder;
 
+        [Tooltip("Replays room_scan.json. Drives the LOAD SAVED SCAN button.")]
+        public RoomScanRebuilder rebuilder;
+
+        [Tooltip("Read only, and only for its button bindings -- the controls readout takes " +
+                 "the labels from here so it cannot go stale if someone rebinds them.")]
+        public RoomScanController scanController;
+
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -64,8 +71,15 @@ namespace ConvaiRoom
         [Tooltip("The multi-line status block. Overwritten every redraw, rich text and all.")]
         [SerializeField] private Text _statusText;
 
+        [Tooltip("The controller-bindings block. Written once on startup from the actual " +
+                 "bindings, not every frame -- they cannot change while the scene runs.")]
+        [SerializeField] private Text _controlsText;
+
         [SerializeField] private Button _saveButton;
         [SerializeField] private Button _recenterButton;
+
+        [Tooltip("Replays whatever room_scan.json is on disk, without touching the live scan.")]
+        [SerializeField] private Button _loadButton;
 
         [Tooltip("Styled as locked but left interactable on purpose -- see NextPhaseNotWired.")]
         [SerializeField] private Button _nextPhaseButton;
@@ -149,6 +163,8 @@ namespace ConvaiRoom
         private void Awake()
         {
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
+            if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
+            if (scanController == null) scanController = FindAnyObjectByType<RoomScanController>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -171,6 +187,7 @@ namespace ConvaiRoom
             _canvasGo = _raycaster.gameObject;
 
             BindButtons();
+            WriteControls();
             _cursor = ConvaiRoomLaserCursor.Create();
 
             // Hidden until MRUK reports in, so the panel does not flash up somewhere
@@ -193,8 +210,10 @@ namespace ConvaiRoom
             if (_raycaster == null) missing.Add(nameof(_raycaster));
             if (_countsText == null) missing.Add(nameof(_countsText));
             if (_statusText == null) missing.Add(nameof(_statusText));
+            if (_controlsText == null) missing.Add(nameof(_controlsText));
             if (_saveButton == null) missing.Add(nameof(_saveButton));
             if (_recenterButton == null) missing.Add(nameof(_recenterButton));
+            if (_loadButton == null) missing.Add(nameof(_loadButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
 
             if (missing.Count == 0) return true;
@@ -217,6 +236,7 @@ namespace ConvaiRoom
         {
             _saveButton.onClick.AddListener(SaveScan);
             _recenterButton.onClick.AddListener(Recenter);
+            _loadButton.onClick.AddListener(LoadSavedScan);
             _nextPhaseButton.onClick.AddListener(NextPhaseNotWired);
         }
 
@@ -509,6 +529,46 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// Replays whatever room_scan.json is on disk.
+        ///
+        /// Available before and during a scan on purpose. The rebuilt boxes are the
+        /// rebuilder's own objects, separate from anything the recorder is accumulating, so
+        /// this disturbs nothing -- it just shows what is already saved, which is the only
+        /// way to judge whether a previous scan is worth keeping before overwriting it.
+        /// </summary>
+        public void LoadSavedScan()
+        {
+            if (rebuilder == null)
+            {
+                Report("load failed: no rebuilder in the scene");
+                Debug.LogError($"{Tag} No RoomScanRebuilder in the scene, so there is nothing " +
+                               $"that can replay the scan file.");
+                return;
+            }
+
+            rebuilder.Rebuild();
+
+            if (rebuilder.Scan == null)
+            {
+                Report("nothing to load: no scan file on disk");
+                return;
+            }
+
+            var count = rebuilder.Rebuilt.Count;
+            var alignment = rebuilder.Alignment;
+
+            // Whether the boxes were corrected onto the current walls or dropped in on the
+            // file's own coordinates is worth saying: the two look identical right up until
+            // you notice the whole room is rotated.
+            Report(alignment.Applied
+                ? $"loaded {count} objects, aligned to walls ({alignment.Error:F2} m)"
+                : $"loaded {count} objects, file coordinates");
+
+            Debug.Log($"{Tag} Loaded {count} objects from {RoomScanIO.DefaultPath} " +
+                      $"(alignment: {alignment.Summary}).");
+        }
+
+        /// <summary>
         /// Deliberately not wired. Phase 2 does not exist yet, and a button that silently does
         /// nothing is indistinguishable from a broken one -- so this acknowledges the press
         /// and says why. Do not delete this thinking it is dead code; delete it when you
@@ -558,6 +618,58 @@ namespace ConvaiRoom
             _lastAction = message;
             _lastActionExpiresAt = Time.time + 6f;
             _dirty = true;
+        }
+
+        /// <summary>
+        /// Writes the controller bindings into the panel, once.
+        ///
+        /// The labels come from RoomScanController's own binding fields rather than being
+        /// typed out here, so rebinding one cannot leave this readout quietly lying about
+        /// which button does what. Written once rather than per redraw because those fields
+        /// are serialized -- they cannot change while the scene is running.
+        /// </summary>
+        private void WriteControls()
+        {
+            _builder.Clear();
+            _builder.AppendLine("<color=#ffd54d>CONTROLS</color>");
+
+            if (scanController != null)
+                _builder.AppendLine($"{ButtonLabel(scanController.exportButton)} save   " +
+                                    $"{ButtonLabel(scanController.clearButton)} clear   " +
+                                    $"{ButtonLabel(scanController.rebuildButton)} load   " +
+                                    $"{ButtonLabel(scanController.shellToggleButton)} outline");
+            else
+                _builder.AppendLine("<color=#ff8080>no RoomScanController in the scene</color>");
+
+            // Worth its own line. OVRInput promotes hand tracking to the active controller,
+            // and under it every face button above resolves to nothing -- so on hands the
+            // panel is not a convenience, it is the only way to drive any of this.
+            _builder.Append("<color=#9a9aa0>face buttons need controllers; on hand tracking " +
+                            "use the buttons below</color>");
+
+            _controlsText.text = _builder.ToString();
+        }
+
+        /// <summary>
+        /// The name printed on the headset's controller for a binding. OVRInput's enum names
+        /// are positional -- One, Two, Three, Four -- and nobody wearing the thing knows which
+        /// of those is the button under their thumb.
+        /// </summary>
+        private static string ButtonLabel(OVRInput.Button button)
+        {
+            switch (button)
+            {
+                case OVRInput.Button.One: return "A";
+                case OVRInput.Button.Two: return "B";
+                case OVRInput.Button.Three: return "X";
+                case OVRInput.Button.Four: return "Y";
+                case OVRInput.Button.PrimaryIndexTrigger: return "L trigger";
+                case OVRInput.Button.SecondaryIndexTrigger: return "R trigger";
+                case OVRInput.Button.PrimaryHandTrigger: return "L grip";
+                case OVRInput.Button.SecondaryHandTrigger: return "R grip";
+                case OVRInput.Button.Start: return "menu";
+                default: return button.ToString();
+            }
         }
 
         // -----------------------------------------------------------------

@@ -28,7 +28,7 @@ namespace ConvaiRoomEditor
         // Authoring units. The canvas is laid out in these and then scaled to metres, so the
         // numbers below read like ordinary UI pixels rather than millimetres.
         private const float CanvasWidth = 420f;
-        private const float CanvasHeight = 340f;
+        private const float CanvasHeight = 500f;
 
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
@@ -56,27 +56,44 @@ namespace ConvaiRoomEditor
                     "Overwrite", "Cancel"))
                 return;
 
+            BakeTo(PrefabPath);
+        }
+
+        /// <summary>
+        /// Bakes the panel without asking anything.
+        ///
+        /// Split out from the menu item so the bake can be driven from a script or an editor
+        /// automation step. A modal confirmation in the middle of one of those does not prompt
+        /// anybody, it just hangs the editor until somebody happens to walk past.
+        ///
+        /// Overwrites an existing asset at the path in place, which keeps its GUID -- and that
+        /// matters, because the scene refers to this prefab by GUID. Deleting and recreating
+        /// would hand back a new one and orphan every instance.
+        /// </summary>
+        public static void BakeTo(string prefabPath)
+        {
             var root = BuildHierarchy();
 
             try
             {
-                Directory.CreateDirectory(PrefabDirectory);
+                var directory = Path.GetDirectoryName(prefabPath);
+                if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
                 AssetDatabase.Refresh();
 
-                var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath, out var success);
+                var prefab = PrefabUtility.SaveAsPrefabAsset(root, prefabPath, out var success);
 
                 if (!success || prefab == null)
                 {
-                    Debug.LogError($"[ScanPanelBaker] Failed to write {PrefabPath}.");
+                    Debug.LogError($"[ScanPanelBaker] Failed to write {prefabPath}.");
                     return;
                 }
 
                 Selection.activeObject = prefab;
                 EditorGUIUtility.PingObject(prefab);
 
-                Debug.Log($"[ScanPanelBaker] Baked the scan panel to {PrefabPath}. Drag it into " +
-                          $"the scene, assign the recorder on it, and delete the old panel " +
-                          $"GameObject.");
+                Debug.Log($"[ScanPanelBaker] Baked the scan panel to {prefabPath}. Existing " +
+                          $"instances pick this up automatically; a fresh one needs its " +
+                          $"recorder, rebuilder and scan controller assigned.");
             }
             finally
             {
@@ -130,12 +147,22 @@ namespace ConvaiRoomEditor
             var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 118f,
                                   16, TextAnchor.UpperLeft);
 
-            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 214f, 186f, 54f);
-            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 214f, 186f, 54f);
+            var controls = MakeText(canvasRect, "Controls", 16f, 216f, CanvasWidth - 32f, 88f,
+                                    16, TextAnchor.UpperLeft);
+
+            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 312f, 186f, 54f);
+            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 312f, 186f, 54f);
+
+            // Full width, and above the phase button rather than beside the save pair. Loading
+            // replaces what is on screen with what is on disk, which is a different kind of act
+            // from the two above it -- worth its own row rather than being mistaken for one of
+            // the pair while you are aiming a jittery hand ray at it.
+            var load = MakeButton(canvasRect, "Load Button", "LOAD SAVED SCAN",
+                                  16f, 372f, CanvasWidth - 32f, 54f);
 
             var nextPhase = MakeButton(canvasRect, "Next Phase Button",
                                        "NEXT PHASE <color=#7a7a80>(not wired)</color>",
-                                       16f, 274f, CanvasWidth - 32f, 54f);
+                                       16f, 432f, CanvasWidth - 32f, 54f);
 
             // Left interactable on purpose. A non-interactable Selectable receives no pointer
             // events at all -- no hover, no press, nothing -- which is exactly how a broken
@@ -146,7 +173,8 @@ namespace ConvaiRoomEditor
             var nextPhaseLabel = nextPhase.GetComponentInChildren<Text>();
             if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
 
-            BindPanelFields(panel, raycaster, counts, status, save, recenter, nextPhase);
+            BindPanelFields(panel, raycaster, counts, status, controls,
+                            save, recenter, load, nextPhase);
             return root;
         }
 
@@ -156,8 +184,9 @@ namespace ConvaiRoomEditor
         /// any business setting these at runtime.
         /// </summary>
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
-                                            Text counts, Text status,
-                                            Button save, Button recenter, Button nextPhase)
+                                            Text counts, Text status, Text controls,
+                                            Button save, Button recenter, Button load,
+                                            Button nextPhase)
         {
             var so = new SerializedObject(panel);
 
@@ -165,8 +194,10 @@ namespace ConvaiRoomEditor
             Assign(so, "_raycaster", raycaster);
             Assign(so, "_countsText", counts);
             Assign(so, "_statusText", status);
+            Assign(so, "_controlsText", controls);
             Assign(so, "_saveButton", save);
             Assign(so, "_recenterButton", recenter);
+            Assign(so, "_loadButton", load);
             Assign(so, "_nextPhaseButton", nextPhase);
 
             so.ApplyModifiedPropertiesWithoutUndo();
