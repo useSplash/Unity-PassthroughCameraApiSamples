@@ -90,6 +90,10 @@ namespace ConvaiRoom
         [Tooltip("Bakes the NavMesh from whatever the rebuilder is currently holding.")]
         [SerializeField] private Button _bakeButton;
 
+        [Tooltip("Quits the app. Sits away from the others in the title bar, and takes two " +
+                 "presses -- see ExitApplication.")]
+        [SerializeField] private Button _exitButton;
+
         [Tooltip("Styled as locked but left interactable on purpose -- see NextPhaseNotWired.")]
         [SerializeField] private Button _nextPhaseButton;
 
@@ -117,6 +121,11 @@ namespace ConvaiRoom
 
         [Tooltip("Seconds between scan-file checks on disk.")]
         public float diskRefreshInterval = 1f;
+
+        [Header("Exit")]
+        [Tooltip("How long the first EXIT press stays armed. Press it again inside this to " +
+                 "quit; let it lapse and the next press starts over.")]
+        public float exitConfirmSeconds = 5f;
 
         [Header("Counts colour")]
         [Tooltip("The counts line is the one piece of styling the panel still drives, because " +
@@ -161,6 +170,13 @@ namespace ConvaiRoom
 
         private string _lastAction = "none yet";
         private float _lastActionExpiresAt = float.PositiveInfinity;
+
+        /// <summary>
+        /// While this is in the future, a second EXIT press quits. Deliberately shorter-lived
+        /// than the status line that announces it, so the button can never still be armed
+        /// after the message telling you so has gone.
+        /// </summary>
+        private float _exitArmedUntil = float.NegativeInfinity;
 
         // Redraw is gated: the text mesh is rebuilt when something displayed actually
         // changed, and otherwise at most once a second so the "2m ago" age still ticks.
@@ -226,6 +242,7 @@ namespace ConvaiRoom
             if (_recenterButton == null) missing.Add(nameof(_recenterButton));
             if (_loadButton == null) missing.Add(nameof(_loadButton));
             if (_bakeButton == null) missing.Add(nameof(_bakeButton));
+            if (_exitButton == null) missing.Add(nameof(_exitButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
 
             if (missing.Count == 0) return true;
@@ -250,6 +267,7 @@ namespace ConvaiRoom
             _recenterButton.onClick.AddListener(Recenter);
             _loadButton.onClick.AddListener(LoadSavedScan);
             _bakeButton.onClick.AddListener(BakeNavMesh);
+            _exitButton.onClick.AddListener(ExitApplication);
             _nextPhaseButton.onClick.AddListener(NextPhaseNotWired);
         }
 
@@ -621,6 +639,51 @@ namespace ConvaiRoom
 
             Report($"baked navmesh: {navMeshBuilder.ObstacleCount} obstacles" +
                    (triangles > 0 ? $", {triangles} tris" : ""));
+        }
+
+        /// <summary>
+        /// Quits the app, on the second press.
+        ///
+        /// Two presses rather than one because of what a misfire costs here. A hand ray
+        /// jitters, the panel is the only way to drive anything without controllers, and the
+        /// thing an accidental exit throws away is a scan you may have spent ten minutes
+        /// walking around a room to collect. The first press says how many objects are sitting
+        /// in memory so the number you would lose is in front of you before you confirm.
+        ///
+        /// There is no dialog because a world-space modal is another thing to aim at. The
+        /// existing transient status line does the job and disarms itself.
+        /// </summary>
+        public void ExitApplication()
+        {
+            if (Time.unscaledTime > _exitArmedUntil)
+            {
+                _exitArmedUntil = Time.unscaledTime + exitConfirmSeconds;
+
+                Report(_ready > 0
+                    ? $"press EXIT again to quit -- {_ready} objects in memory"
+                    : "press EXIT again to quit");
+                return;
+            }
+
+            _exitArmedUntil = float.NegativeInfinity;
+
+            Debug.Log($"{Tag} Exit confirmed; quitting with {_ready} ready / {_tracked} " +
+                      $"tracked in memory.");
+
+            Quit();
+        }
+
+        /// <summary>
+        /// Application.Quit does nothing in the Editor, which makes the button look broken on
+        /// the one platform where you are most likely to be testing it.
+        /// </summary>
+        private static void Quit()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
 
         /// <summary>

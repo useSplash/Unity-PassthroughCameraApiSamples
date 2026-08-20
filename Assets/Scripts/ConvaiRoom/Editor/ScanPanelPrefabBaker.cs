@@ -45,6 +45,9 @@ namespace ConvaiRoomEditor
         private static readonly Color LockedButton = new Color(0.16f, 0.16f, 0.18f, 0.75f);
         private static readonly Color LockedLabel = new Color(0.55f, 0.55f, 0.58f);
 
+        /// <summary>Muted red. Reads as destructive without shouting over the readout.</summary>
+        private static readonly Color ExitButton = new Color(0.42f, 0.18f, 0.20f, 0.92f);
+
         [MenuItem("Tools/Convai Room/Bake Scan Panel Prefab")]
         public static void Bake()
         {
@@ -139,10 +142,19 @@ namespace ConvaiRoomEditor
                 .gameObject.AddComponent<Image>();
             background.color = Background;
 
-            var title = MakeText(canvasRect, "Title", 16f, 12f, CanvasWidth - 32f, 28f,
+            // 290 wide rather than the full 388, to leave the title bar's right end free.
+            var title = MakeText(canvasRect, "Title", 16f, 12f, 290f, 28f,
                                  24, TextAnchor.MiddleLeft);
             title.text = "PHASE 1 - SCAN";
             title.color = TitleColor;
+
+            // Up in the title bar, deliberately nowhere near SAVE, LOAD and BAKE. Those get
+            // pressed constantly with a ray that jitters, and the cost of catching this one by
+            // accident is a scan you spent ten minutes collecting. It also asks twice.
+            var exit = MakeButton(canvasRect, "Exit Button", "EXIT", 314f, 8f, 90f, 40f);
+
+            var exitImage = exit.targetGraphic as Image;
+            if (exitImage != null) exitImage.color = ExitButton;
 
             // Left empty on purpose -- both of these are overwritten every redraw, and seeding
             // them with placeholder copy only invites someone to edit the placeholder and
@@ -184,7 +196,7 @@ namespace ConvaiRoomEditor
             if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
 
             BindPanelFields(panel, raycaster, counts, status, controls,
-                            save, recenter, load, bake, nextPhase);
+                            save, recenter, load, bake, exit, nextPhase);
             return root;
         }
 
@@ -196,7 +208,7 @@ namespace ConvaiRoomEditor
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
                                             Text counts, Text status, Text controls,
                                             Button save, Button recenter, Button load,
-                                            Button bake, Button nextPhase)
+                                            Button bake, Button exit, Button nextPhase)
         {
             var so = new SerializedObject(panel);
 
@@ -209,6 +221,7 @@ namespace ConvaiRoomEditor
             Assign(so, "_recenterButton", recenter);
             Assign(so, "_loadButton", load);
             Assign(so, "_bakeButton", bake);
+            Assign(so, "_exitButton", exit);
             Assign(so, "_nextPhaseButton", nextPhase);
 
             so.ApplyModifiedPropertiesWithoutUndo();
