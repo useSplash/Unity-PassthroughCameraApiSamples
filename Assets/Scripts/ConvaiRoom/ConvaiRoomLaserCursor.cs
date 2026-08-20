@@ -20,6 +20,14 @@ namespace ConvaiRoom
         public float cursorSize = 0.012f;
         public Color beamColor = new Color(0.45f, 0.85f, 1f, 0.85f);
 
+        [Tooltip("Draw order against the rest of the scan visuals. The scan wireframes sit at " +
+                 "0 and the panel canvas at 100, so the beam and its dot go above both.\n\n" +
+                 "It has to be above the panel, not just above the boxes: the dot marks where " +
+                 "you are pointing ON the panel, and a dot sorted underneath it is invisible " +
+                 "exactly when it matters. Everything here is alpha-blended and writes no " +
+                 "depth, so draw order is what decides this rather than distance.")]
+        public int sortingOrder = 200;
+
         private LineRenderer _line;
         private Transform _dot;
 
@@ -58,6 +66,7 @@ namespace ConvaiRoom
             _line.positionCount = 2;
             _line.startColor = beamColor;
             _line.endColor = beamColor;
+            _line.sortingOrder = sortingOrder;
 
             _dot = BuildDot();
         }
@@ -77,6 +86,7 @@ namespace ConvaiRoom
             renderer.sharedMaterial = WireMaterial.Shared;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
+            renderer.sortingOrder = sortingOrder;
 
             // Tint through a property block: the wire material is shared with every
             // scan wireframe in the scene, so writing .color would recolour all of them.

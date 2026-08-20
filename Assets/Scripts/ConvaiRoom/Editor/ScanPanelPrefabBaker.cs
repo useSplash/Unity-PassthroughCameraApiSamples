@@ -33,6 +33,12 @@ namespace ConvaiRoomEditor
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
 
+        /// <summary>
+        /// Draw order for the panel canvas: above the scan wireframes at 0, below the laser
+        /// and its cursor dot at 200. See ConvaiRoomLaserCursor.sortingOrder.
+        /// </summary>
+        private const int PanelSortingOrder = 100;
+
         private static readonly Color Background = new Color(0.05f, 0.07f, 0.10f, 0.85f);
         private static readonly Color TitleColor = new Color(1f, 0.85f, 0.3f);
         private static readonly Color ActionButton = new Color(0.22f, 0.28f, 0.34f, 0.92f);
@@ -90,6 +96,13 @@ namespace ConvaiRoomEditor
 
             var canvas = canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
+
+            // Above the scan wireframes, which draw at 0. Both this canvas and those boxes are
+            // alpha-blended and write no depth, so whichever happens to be nearer the headset
+            // wins on distance alone -- which meant a box between you and the panel painted
+            // straight over the readout. Sorting order decides it explicitly instead. The
+            // laser and its cursor dot sit above both, at 200.
+            canvas.sortingOrder = PanelSortingOrder;
 
             var canvasRect = (RectTransform)canvasGo.transform;
             canvasRect.sizeDelta = new Vector2(CanvasWidth, CanvasHeight);
