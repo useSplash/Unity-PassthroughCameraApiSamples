@@ -142,6 +142,13 @@ namespace ConvaiRoomEditor
                 .gameObject.AddComponent<Image>();
             background.color = Background;
 
+            // The drag handler goes here rather than on the canvas root. Drag events bubble up
+            // from whatever was hit, so on the root every button would become draggable -- and
+            // with a jittery ray a press that creeps past the drag threshold turns into a drag
+            // instead of a click. On the background it catches only the parts with nothing on
+            // top of them, which gives the panel a title bar and the buttons their presses.
+            background.gameObject.AddComponent<ConvaiRoomPanelDragger>();
+
             // 290 wide rather than the full 388, to leave the title bar's right end free.
             var title = MakeText(canvasRect, "Title", 16f, 12f, 290f, 28f,
                                  24, TextAnchor.MiddleLeft);
@@ -176,8 +183,9 @@ namespace ConvaiRoomEditor
             var scanToggle = MakeButton(canvasRect, "Scan Toggle Button", "STOP SCANNING",
                                         16f, 348f, CanvasWidth - 32f, 54f);
 
-            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN", 16f, 408f, 186f, 54f);
-            var recenter = MakeButton(canvasRect, "Recenter Button", "RECENTER", 218f, 408f, 186f, 54f);
+            // Full width now that RECENTER is gone -- the panel is dragged instead.
+            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN",
+                                  16f, 408f, CanvasWidth - 32f, 54f);
 
             // Full width, one per row, and above the phase button rather than beside the save
             // pair. Each of these replaces what is in the room -- the loaded boxes, then the
@@ -203,7 +211,7 @@ namespace ConvaiRoomEditor
             if (nextPhaseLabel != null) nextPhaseLabel.color = LockedLabel;
 
             BindPanelFields(panel, raycaster, counts, status, controls, scanToggle,
-                            save, recenter, load, bake, exit, nextPhase);
+                            save, load, bake, exit, nextPhase);
             return root;
         }
 
@@ -215,7 +223,7 @@ namespace ConvaiRoomEditor
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
                                             Text counts, Text status, Text controls,
                                             Button scanToggle,
-                                            Button save, Button recenter, Button load,
+                                            Button save, Button load,
                                             Button bake, Button exit, Button nextPhase)
         {
             var so = new SerializedObject(panel);
@@ -227,7 +235,6 @@ namespace ConvaiRoomEditor
             Assign(so, "_controlsText", controls);
             Assign(so, "_scanToggleButton", scanToggle);
             Assign(so, "_saveButton", save);
-            Assign(so, "_recenterButton", recenter);
             Assign(so, "_loadButton", load);
             Assign(so, "_bakeButton", bake);
             Assign(so, "_exitButton", exit);

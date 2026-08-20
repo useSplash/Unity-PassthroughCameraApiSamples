@@ -91,7 +91,6 @@ namespace ConvaiRoom
         [SerializeField] private Text _controlsText;
 
         [SerializeField] private Button _saveButton;
-        [SerializeField] private Button _recenterButton;
 
         [Tooltip("Replays whatever room_scan.json is on disk, without touching the live scan.")]
         [SerializeField] private Button _loadButton;
@@ -156,6 +155,13 @@ namespace ConvaiRoom
 
         private bool _canMove = true;
         private bool _hasSpawned;
+
+        /// <summary>
+        /// False when the panel shares a GameObject with the rebuilder, where moving it would
+        /// drag every replayed box along too. Public because the dragger has to honour the
+        /// same refusal Recenter does -- there is no point guarding one route and not the other.
+        /// </summary>
+        public bool CanMove => _canMove;
 
         /// <summary>
         /// False when the prefab references are not all assigned. Everything downstream is
@@ -266,7 +272,6 @@ namespace ConvaiRoom
             if (_statusText == null) missing.Add(nameof(_statusText));
             if (_controlsText == null) missing.Add(nameof(_controlsText));
             if (_saveButton == null) missing.Add(nameof(_saveButton));
-            if (_recenterButton == null) missing.Add(nameof(_recenterButton));
             if (_loadButton == null) missing.Add(nameof(_loadButton));
             if (_bakeButton == null) missing.Add(nameof(_bakeButton));
             if (_exitButton == null) missing.Add(nameof(_exitButton));
@@ -292,7 +297,6 @@ namespace ConvaiRoom
         private void BindButtons()
         {
             _saveButton.onClick.AddListener(SaveScan);
-            _recenterButton.onClick.AddListener(Recenter);
             _loadButton.onClick.AddListener(LoadSavedScan);
             _bakeButton.onClick.AddListener(BakeNavMesh);
             _exitButton.onClick.AddListener(ExitApplication);
@@ -789,7 +793,13 @@ namespace ConvaiRoom
                       $"(phase 1 only).");
         }
 
-        /// <summary>Drops the panel back in front of the player, facing them.</summary>
+        /// <summary>
+        /// Drops the panel in front of the player, facing them.
+        ///
+        /// No longer on a button -- the panel is dragged instead -- but still how it gets
+        /// placed the first time, once MRUK reports its room. Kept public so a controller
+        /// binding or a later phase can call it without rebuilding the plumbing.
+        /// </summary>
         public void Recenter()
         {
             if (!_canMove)
@@ -852,8 +862,13 @@ namespace ConvaiRoom
             // Worth its own line. OVRInput promotes hand tracking to the active controller,
             // and under it every face button above resolves to nothing -- so on hands the
             // panel is not a convenience, it is the only way to drive any of this.
-            _builder.Append("<color=#9a9aa0>face buttons need controllers; on hand tracking " +
-                            "use the buttons below</color>");
+            _builder.AppendLine("<color=#9a9aa0>face buttons need controllers; on hand " +
+                                "tracking use the buttons below</color>");
+
+            // Says so because nothing else does. RECENTER used to be a visible button; drag
+            // is invisible until someone tells you it is there.
+            _builder.Append("<color=#9a9aa0>drag this panel by its title or readout to move " +
+                            "it</color>");
 
             _controlsText.text = _builder.ToString();
         }
