@@ -48,6 +48,11 @@ namespace ConvaiRoom
                  "small: a large radius silently drags the spawn somewhere you did not aim.")]
         public float sampleRadius = 0.6f;
 
+        [Tooltip("How far from the player to go looking for the baked floor itself. Covers " +
+                 "standing head height with slack -- candidates are dropped onto whatever " +
+                 "this finds rather than being sampled at your eye height.")]
+        public float maxFloorDrop = 3f;
+
         [Header("Agent")]
         [Tooltip("Push the bake's agent dimensions onto the character's NavMeshAgent.\n\n" +
                  "Leave this on. The navmesh is baked for a 0.25 m half-width so the " +
@@ -290,6 +295,23 @@ namespace ConvaiRoom
 
             var origin = head.transform.position;
 
+            // Resolved once, before any candidate is built, and the whole reason this is not a
+            // plain loop of samples. The candidates below fan out from the player HORIZONTALLY,
+            // which leaves every one of them at eye height -- and the bake is on the floor, a
+            // metre and a half underneath. Sampling a 0.6m radius from up there reaches nothing
+            // at all, so every candidate misses and the spawn reports no walkable floor while
+            // the navmesh is drawn plainly in front of you. Candidates are dropped onto this
+            // height before they are sampled.
+            if (!NavMesh.SamplePosition(origin, out var underfoot, maxFloorDrop, NavMesh.AllAreas))
+            {
+                Debug.LogWarning($"{Tag} No baked floor within {maxFloorDrop:F1}m of the player, " +
+                                 $"so there is nowhere to stand the character. The likeliest " +
+                                 $"cause is standing outside the room that was scanned.");
+                return false;
+            }
+
+            var floorY = underfoot.position.y;
+
             var forward = head.transform.forward;
             forward.y = 0f;
             if (forward.sqrMagnitude < 1e-4f) forward = Vector3.forward;
@@ -301,6 +323,10 @@ namespace ConvaiRoom
                 {
                     var direction = Quaternion.AngleAxis(angle, Vector3.up) * forward;
                     var candidate = origin + direction * (preferredDistance * distance);
+
+                    // Onto the floor before sampling. Without this the candidate is at head
+                    // height and sampleRadius can never span the drop -- see floorY above.
+                    candidate.y = floorY;
 
                     if (!NavMesh.SamplePosition(candidate, out var hit, sampleRadius, NavMesh.AllAreas))
                         continue;
