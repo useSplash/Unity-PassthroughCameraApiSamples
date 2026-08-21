@@ -15,10 +15,10 @@ namespace ConvaiRoom
     /// character is useful until there is a floor to stand on, so nothing about it exists
     /// until then.
     ///
-    /// This owns placement only. Where the character then WALKS is
-    /// <see cref="RoomCharacterDirector"/>'s job, and what it says is the Convai session's --
-    /// keeping the three apart means a character that will not move can be diagnosed without
-    /// a network, which is most of the value of splitting them.
+    /// This owns placement only, and placement is the last thing here that is ours. Where the
+    /// character then walks and what she says both belong to the Convai session: she moves
+    /// because the conversation moved her, using the SDK's own locomotion over the navmesh
+    /// phase 1 baked. Nothing in this project sends her anywhere.
     /// </summary>
     public class RoomCharacterSpawner : MonoBehaviour
     {

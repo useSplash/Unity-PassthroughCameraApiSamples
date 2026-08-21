@@ -89,10 +89,6 @@ namespace ConvaiRoom
                  "one the panel stays in phase 1 and says so.")]
         public RoomCharacterSpawner characterSpawner;
 
-        [Tooltip("Optional. Sends the character walking, and supplies the where-is-it line " +
-                 "on the readout.")]
-        public RoomCharacterDirector characterDirector;
-
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -127,10 +123,6 @@ namespace ConvaiRoom
         [Tooltip("Starts and stops scanning. Its label is the action it will take, not the " +
                  "state it is in -- see ToggleScanning.")]
         [SerializeField] private Button _scanToggleButton;
-
-        [Tooltip("Stops the character mid-walk. The only control here that is useful while " +
-                 "something is happening rather than between things -- see HaltCharacter.")]
-        [SerializeField] private Button _haltButton;
 
         [Tooltip("Moves between the scan and the character phase. Its label is the direction " +
                  "it will take you, not the phase you are in -- see UpdatePhaseLabel.")]
@@ -255,7 +247,6 @@ namespace ConvaiRoom
             if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
             if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
             if (characterSpawner == null) characterSpawner = FindAnyObjectByType<RoomCharacterSpawner>();
-            if (characterDirector == null) characterDirector = FindAnyObjectByType<RoomCharacterDirector>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -318,7 +309,6 @@ namespace ConvaiRoom
             if (_bakeButton == null) missing.Add(nameof(_bakeButton));
             if (_exitButton == null) missing.Add(nameof(_exitButton));
             if (_scanToggleButton == null) missing.Add(nameof(_scanToggleButton));
-            if (_haltButton == null) missing.Add(nameof(_haltButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
 
             if (missing.Count == 0) return true;
@@ -344,7 +334,6 @@ namespace ConvaiRoom
             _bakeButton.onClick.AddListener(BakeNavMesh);
             _exitButton.onClick.AddListener(ExitApplication);
             _scanToggleButton.onClick.AddListener(ScanToggleOrRespawn);
-            _haltButton.onClick.AddListener(HaltCharacter);
             _nextPhaseButton.onClick.AddListener(TogglePhase);
         }
 
@@ -879,7 +868,7 @@ namespace ConvaiRoom
             UpdateScanToggleLabel();
             _dirty = true;
 
-            Report("character phase -- point at the floor and pull the trigger");
+            Report("character phase -- she is listening");
             Debug.Log($"{Tag} Entered the character phase at " +
                       $"{characterSpawner.LastSpawnPoint:F2}.");
         }
@@ -931,38 +920,6 @@ namespace ConvaiRoom
             }
 
             Report("character respawned");
-            _dirty = true;
-        }
-
-        /// <summary>
-        /// Stops the character where she stands, without leaving the character phase.
-        ///
-        /// This gets a button of its own rather than another job for the scan toggle. Every
-        /// other control on the panel is useful BETWEEN actions; this is the only one that is
-        /// useful during one -- and the button it would otherwise have shared is showing
-        /// RESPAWN by then, so the press you reach for to stop a walk would have been the press
-        /// that starts a new one somewhere else.
-        ///
-        /// Deliberately not greyed out in the scan phase. A non-interactable Selectable
-        /// receives no pointer events at all, which is exactly how a broken button behaves --
-        /// the same reasoning that left the phase button interactable while it was still
-        /// locked. It says why instead.
-        /// </summary>
-        public void HaltCharacter()
-        {
-            if (characterDirector == null)
-            {
-                Report("no character director in the scene");
-                Debug.LogWarning($"{Tag} Cannot stop the character: there is no " +
-                                 $"RoomCharacterDirector in the scene, so nothing is driving " +
-                                 $"one to stop.");
-                return;
-            }
-
-            // Halt already declines when nothing is moving, and that refusal is worth saying
-            // out loud: on a headset a button that silently does nothing reads as broken rather
-            // than as inapplicable.
-            Report(characterDirector.Halt() ? "character stopped" : "nothing to stop");
             _dirty = true;
         }
 
@@ -1223,12 +1180,12 @@ namespace ConvaiRoom
             _builder.AppendLine(NavMeshLine());
             _builder.AppendLine(CharacterLine());
 
-            // Only while it can be acted on. The aiming hint is the one thing about phase 2
-            // that is not discoverable -- the marker does not appear until you already point
-            // at the floor, which is the thing you have to be told to do.
+            // Only while it can be acted on. Nothing on this panel moves her -- she is driven
+            // by the conversation -- so the hint says the one thing that is not discoverable
+            // from the readout: that talking to her is the interaction.
             if (_phase == Phase.Character)
-                _builder.AppendLine("<color=#9a9aa0>point at the floor and pull the trigger to " +
-                                    "send it walking</color>");
+                _builder.AppendLine("<color=#9a9aa0>just talk to her -- where she goes is the " +
+                                    "conversation's business</color>");
 
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
@@ -1309,12 +1266,10 @@ namespace ConvaiRoom
 
             var where = distance >= 0f ? $"{distance:F1} m away" : "somewhere in the room";
 
-            if (characterDirector == null)
-                return $"character : <color=#7fd97f>HERE</color> - {where}";
-
-            var doing = characterDirector.IsMoving ? "walking" : "waiting";
-
-            return $"character : <color=#7fd97f>{doing.ToUpperInvariant()}</color> - {where}";
+            // Presence only. Whether she is walking is Convai's business now -- the panel has
+            // no hand in where she goes, so a state it does not drive is a state it should not
+            // claim to report.
+            return $"character : <color=#7fd97f>HERE</color> - {where}";
         }
 
         private string Kilobytes() => $"{_diskBytes / 1024f:0.0} KB";

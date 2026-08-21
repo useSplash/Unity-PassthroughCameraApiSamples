@@ -28,11 +28,7 @@ namespace ConvaiRoomEditor
         // Authoring units. The canvas is laid out in these and then scaled to metres, so the
         // numbers below read like ordinary UI pixels rather than millimetres.
         private const float CanvasWidth = 420f;
-
-        // 720 rather than the original 660: the button stack grew a seventh row for STOP, and
-        // the panel grows with it rather than tightening the 6-unit gaps. At this scale that is
-        // a 72cm panel instead of a 66cm one, which is still comfortably inside arm's reach.
-        private const float CanvasHeight = 720f;
+        private const float CanvasHeight = 660f;
 
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
@@ -185,34 +181,28 @@ namespace ConvaiRoomEditor
             var scanToggle = MakeButton(canvasRect, "Scan Toggle Button", "STOP SCANNING",
                                         16f, 348f, CanvasWidth - 32f, 54f);
 
-            // Directly under the scan toggle, because that button reads RESPAWN once the
-            // character is in the room and these two are the pair that act on her. Inert during
-            // phase 1 and deliberately not greyed for it -- see ConvaiRoomModePanel.HaltCharacter.
-            var halt = MakeButton(canvasRect, "Halt Button", "STOP",
-                                  16f, 408f, CanvasWidth - 32f, 54f);
-
             // Full width now that RECENTER is gone -- the panel is dragged instead.
             var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN",
-                                  16f, 468f, CanvasWidth - 32f, 54f);
+                                  16f, 408f, CanvasWidth - 32f, 54f);
 
             // Full width, one per row, and above the phase button rather than beside the save
             // pair. Each of these replaces what is in the room -- the loaded boxes, then the
             // navmesh over them -- which is a different kind of act from the two above, and
             // worth not fat-fingering with a jittery hand ray aimed at a half-width target.
             var load = MakeButton(canvasRect, "Load Button", "LOAD SAVED SCAN",
-                                  16f, 528f, CanvasWidth - 32f, 54f);
+                                  16f, 468f, CanvasWidth - 32f, 54f);
 
             var bake = MakeButton(canvasRect, "Bake Button", "BAKE NAVMESH",
-                                  16f, 588f, CanvasWidth - 32f, 54f);
+                                  16f, 528f, CanvasWidth - 32f, 54f);
 
             // Styled like every other action, because it is one. This shipped grey with a
             // "(not wired)" suffix from when phase 2 did not exist; the panel overwrites the
             // text at startup but never the colour, so the button that opens the character
             // phase spent the whole of phase 1 looking like the one control you could not use.
             var nextPhase = MakeButton(canvasRect, "Next Phase Button", "NEXT PHASE",
-                                       16f, 648f, CanvasWidth - 32f, 54f);
+                                       16f, 588f, CanvasWidth - 32f, 54f);
 
-            BindPanelFields(panel, raycaster, counts, status, controls, scanToggle, halt,
+            BindPanelFields(panel, raycaster, counts, status, controls, scanToggle,
                             save, load, bake, exit, nextPhase);
             return root;
         }
@@ -224,7 +214,7 @@ namespace ConvaiRoomEditor
         /// </summary>
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
                                             Text counts, Text status, Text controls,
-                                            Button scanToggle, Button halt,
+                                            Button scanToggle,
                                             Button save, Button load,
                                             Button bake, Button exit, Button nextPhase)
         {
@@ -236,7 +226,6 @@ namespace ConvaiRoomEditor
             Assign(so, "_statusText", status);
             Assign(so, "_controlsText", controls);
             Assign(so, "_scanToggleButton", scanToggle);
-            Assign(so, "_haltButton", halt);
             Assign(so, "_saveButton", save);
             Assign(so, "_loadButton", load);
             Assign(so, "_bakeButton", bake);
