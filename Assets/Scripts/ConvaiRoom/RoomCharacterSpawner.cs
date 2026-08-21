@@ -224,11 +224,18 @@ namespace ConvaiRoom
 
             ConfigureAgent(instance);
 
+            // Placed BEFORE it is activated, which matters now the agent is switched on above.
+            // A NavMeshAgent takes ownership of the transform the moment it wakes: waking at
+            // the holder's origin, it snaps to whatever navmesh is nearest THERE and then
+            // ignores a plain transform write, dragging the character back off the spot we
+            // chose. Positioning it first means it wakes already standing there.
+            instance.transform.SetPositionAndRotation(point, facing);
+
             // Reparented out of the holder, which is what actually activates it and lets
             // every Awake run. Kept under this spawner's transform rather than at the root so
-            // the character is findable next to the rest of the room flow.
-            instance.transform.SetParent(transform, false);
-            instance.transform.SetPositionAndRotation(point, facing);
+            // the character is findable next to the rest of the room flow, and the world pose
+            // is kept so the placement above survives the reparent.
+            instance.transform.SetParent(transform, true);
 
             Destroy(holder);
             return instance;
@@ -245,6 +252,13 @@ namespace ConvaiRoom
         {
             if (!instance.TryGetComponent<NavMeshAgent>(out var agent))
                 agent = instance.AddComponent<NavMeshAgent>();
+
+            // Switched on explicitly, because a prefab can perfectly well carry a disabled one
+            // -- the SDK's own sample character does, and this character was built from it. A
+            // disabled agent is not on the navmesh, so MoveTo refuses every destination while
+            // the character stands there idling as though nothing had been asked of it. That
+            // reads as broken pathing rather than as a tickbox.
+            agent.enabled = true;
 
             if (instance.GetComponentInChildren<ConvaiNavMeshLocomotion>() == null)
                 instance.AddComponent<ConvaiNavMeshLocomotion>();
