@@ -2087,6 +2087,14 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 1339185258}
     - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: characterSpawner
+      value: 
+      objectReference: {fileID: 1174230536}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: characterDirector
+      value: 
+      objectReference: {fileID: 1174230535}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
       propertyPath: navMeshVisualizer
       value: 
       objectReference: {fileID: 1339185270}
@@ -6392,6 +6400,79 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1700415306}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1174230534
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1174230537}
+  - component: {fileID: 1174230536}
+  - component: {fileID: 1174230535}
+  m_Layer: 0
+  m_Name: Room Character
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1174230535
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1174230534}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 427e28f71d2956b4b8fd4fa4115d8e64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomCharacterDirector
+  spawner: {fileID: 1174230536}
+  rebuilder: {fileID: 1339185264}
+  sendButton: 2097152
+  maxAimDistance: 12
+  markerRadius: 0.22
+  walkableColor: {r: 0.5, g: 0.9, b: 0.55, a: 0.95}
+  blockedColor: {r: 1, g: 0.65, b: 0.3, a: 0.9}
+  sortingOrder: 10
+  verboseLogging: 1
+--- !u!114 &1174230536
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1174230534}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 603e60b51273ef543bc7d5f96d49e258, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomCharacterSpawner
+  characterPrefab: {fileID: 8345150164439981185, guid: cd77575296ac48b44bd4bac48fc3d90d, type: 3}
+  navMeshBuilder: {fileID: 1339185271}
+  preferredDistance: 2
+  minPlayerDistance: 1
+  sampleRadius: 0.6
+  matchAgentToBake: 1
+  verboseLogging: 1
+--- !u!4 &1174230537
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1174230534}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1174893042
 GameObject:
@@ -12312,3 +12393,4 @@ SceneRoots:
   - {fileID: 2128446023}
   - {fileID: 1339185262}
   - {fileID: 364605329}
+  - {fileID: 1174230537}

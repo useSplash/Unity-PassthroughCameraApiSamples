@@ -47,6 +47,20 @@ namespace ConvaiRoom
             Ready
         }
 
+        /// <summary>
+        /// Which half of the flow the room is in.
+        ///
+        /// Not a mode in the old Scan/Talk sense -- these are sequential. Scanning produces the
+        /// floor the character stands on, so the character phase cannot be entered until there
+        /// is one, and going back to Scan takes the character away again rather than leaving it
+        /// standing in a room that is being re-measured underneath it.
+        /// </summary>
+        private enum Phase
+        {
+            Scan,
+            Character
+        }
+
         [Header("Wiring (left empty, this is found in the scene)")]
         public ObjectScanRecorder recorder;
 
@@ -70,6 +84,14 @@ namespace ConvaiRoom
         [Tooltip("The YOLO runner. Switched off when scanning stops so inference ends at the " +
                  "source rather than producing detections nobody is looking at.")]
         public ObjectDetectionAgent detectionAgent;
+
+        [Tooltip("Puts the phase 2 character in the room. Drives the phase button -- without " +
+                 "one the panel stays in phase 1 and says so.")]
+        public RoomCharacterSpawner characterSpawner;
+
+        [Tooltip("Optional. Sends the character walking, and supplies the where-is-it line " +
+                 "on the readout.")]
+        public RoomCharacterDirector characterDirector;
 
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
@@ -106,7 +128,12 @@ namespace ConvaiRoom
                  "state it is in -- see ToggleScanning.")]
         [SerializeField] private Button _scanToggleButton;
 
-        [Tooltip("Styled as locked but left interactable on purpose -- see NextPhaseNotWired.")]
+        [Tooltip("Stops the character mid-walk. The only control here that is useful while " +
+                 "something is happening rather than between things -- see HaltCharacter.")]
+        [SerializeField] private Button _haltButton;
+
+        [Tooltip("Moves between the scan and the character phase. Its label is the direction " +
+                 "it will take you, not the phase you are in -- see UpdatePhaseLabel.")]
         [SerializeField] private Button _nextPhaseButton;
 
         [Header("Panel placement")]
@@ -204,6 +231,13 @@ namespace ConvaiRoom
         /// </summary>
         private bool _scanning = true;
 
+        /// <summary>
+        /// Which phase the room is in. Starts in Scan, and nothing moves it but
+        /// <see cref="TogglePhase"/> -- the panel is the only thing that decides this, so
+        /// there is exactly one place a wrong phase can come from.
+        /// </summary>
+        private Phase _phase = Phase.Scan;
+
         // Redraw is gated: the text mesh is rebuilt when something displayed actually
         // changed, and otherwise at most once a second so the "2m ago" age still ticks.
         private bool _dirty = true;
@@ -220,6 +254,8 @@ namespace ConvaiRoom
             if (navMeshVisualizer == null) navMeshVisualizer = FindAnyObjectByType<NavMeshVisualizer>();
             if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
             if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
+            if (characterSpawner == null) characterSpawner = FindAnyObjectByType<RoomCharacterSpawner>();
+            if (characterDirector == null) characterDirector = FindAnyObjectByType<RoomCharacterDirector>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -248,6 +284,12 @@ namespace ConvaiRoom
             // agrees. The three components have their own enabled flags in the scene, and a
             // panel that says SCANNING while the agent is switched off is worse than useless.
             ApplyScanning(_scanning);
+
+            // Pushed onto the prefab rather than trusted, for the same reason ApplyScanning is:
+            // the label is authored text and nothing stops it having been left saying something
+            // else. This is the one that says which phase pressing it moves you to.
+            UpdatePhaseLabel();
+
             _cursor = ConvaiRoomLaserCursor.Create();
 
             // Hidden until MRUK reports in, so the panel does not flash up somewhere
@@ -276,6 +318,7 @@ namespace ConvaiRoom
             if (_bakeButton == null) missing.Add(nameof(_bakeButton));
             if (_exitButton == null) missing.Add(nameof(_exitButton));
             if (_scanToggleButton == null) missing.Add(nameof(_scanToggleButton));
+            if (_haltButton == null) missing.Add(nameof(_haltButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
 
             if (missing.Count == 0) return true;
@@ -300,8 +343,9 @@ namespace ConvaiRoom
             _loadButton.onClick.AddListener(LoadSavedScan);
             _bakeButton.onClick.AddListener(BakeNavMesh);
             _exitButton.onClick.AddListener(ExitApplication);
-            _scanToggleButton.onClick.AddListener(ToggleScanning);
-            _nextPhaseButton.onClick.AddListener(NextPhaseNotWired);
+            _scanToggleButton.onClick.AddListener(ScanToggleOrRespawn);
+            _haltButton.onClick.AddListener(HaltCharacter);
+            _nextPhaseButton.onClick.AddListener(TogglePhase);
         }
 
         private void OnEnable()
@@ -732,7 +776,11 @@ namespace ConvaiRoom
             if (_scanToggleButton == null) return;
 
             var label = _scanToggleButton.GetComponentInChildren<Text>();
-            if (label != null) label.text = _scanning ? "STOP SCANNING" : "START SCANNING";
+            if (label == null) return;
+
+            label.text = _phase == Phase.Character
+                ? "RESPAWN"
+                : _scanning ? "STOP SCANNING" : "START SCANNING";
         }
 
         /// <summary>
@@ -781,16 +829,169 @@ namespace ConvaiRoom
         }
 
         /// <summary>
-        /// Deliberately not wired. Phase 2 does not exist yet, and a button that silently does
-        /// nothing is indistinguishable from a broken one -- so this acknowledges the press
-        /// and says why. Do not delete this thinking it is dead code; delete it when you
-        /// replace it with the real phase transition.
+        /// Moves between the scan phase and the character phase.
+        ///
+        /// One button rather than two because the two directions are never both available:
+        /// you are in one phase or the other, and a pair of buttons would spend all its time
+        /// with one of them greyed out. The label says which way it goes -- see
+        /// <see cref="UpdatePhaseLabel"/>.
         /// </summary>
-        private void NextPhaseNotWired()
+        public void TogglePhase()
         {
-            Report("next phase is not wired up yet");
-            Debug.Log($"{Tag} Next-phase button pressed; deliberately not wired up yet " +
-                      $"(phase 1 only).");
+            if (_phase == Phase.Scan) EnterCharacterPhase();
+            else ReturnToScanPhase();
+        }
+
+        /// <summary>
+        /// Stops scanning and puts the character in the room.
+        ///
+        /// Scanning is stopped BEFORE the spawn, not after. The YOLO pass and a rig being
+        /// animated are the two most expensive things in the scene and the transition is
+        /// exactly the moment they would overlap; stopping first also means a spawn that fails
+        /// leaves the room quiet rather than half-transitioned.
+        ///
+        /// A refused spawn does not change phase. The panel would otherwise say ROOM PHASE
+        /// with nothing standing in the room, which is the most confusing thing it could do.
+        /// </summary>
+        public void EnterCharacterPhase()
+        {
+            if (characterSpawner == null)
+            {
+                Report("no character spawner in the scene");
+                Debug.LogError($"{Tag} Cannot enter the character phase: there is no " +
+                               $"RoomCharacterSpawner in the scene, so nothing can put a " +
+                               $"character in the room.");
+                return;
+            }
+
+            if (_scanning) ApplyScanning(false);
+
+            if (!characterSpawner.Spawn())
+            {
+                // The spawner has already logged the detail; the panel carries the summary so
+                // it is readable without a logcat attached.
+                Report($"character phase refused: {characterSpawner.LastFailure}");
+                return;
+            }
+
+            _phase = Phase.Character;
+            UpdatePhaseLabel();
+            UpdateScanToggleLabel();
+            _dirty = true;
+
+            Report("character phase -- point at the floor and pull the trigger");
+            Debug.Log($"{Tag} Entered the character phase at " +
+                      $"{characterSpawner.LastSpawnPoint:F2}.");
+        }
+
+        /// <summary>
+        /// Takes the character away and goes back to scanning controls.
+        ///
+        /// The character is despawned rather than hidden: the scan phase can re-bake the
+        /// navmesh out from under it, and a NavMeshAgent standing on a surface that has been
+        /// removed is a warning per frame and a character that cannot move once you come back.
+        ///
+        /// Scanning is deliberately NOT restarted here. Coming back to look at the scan is not
+        /// the same as wanting to collect more of it, and the YOLO pass is expensive enough
+        /// that it should only ever start because someone asked.
+        /// </summary>
+        public void ReturnToScanPhase()
+        {
+            if (characterSpawner != null) characterSpawner.Despawn();
+
+            _phase = Phase.Scan;
+            UpdatePhaseLabel();
+            UpdateScanToggleLabel();
+            _dirty = true;
+
+            Report("back to scan phase -- character removed");
+            Debug.Log($"{Tag} Returned to the scan phase.");
+        }
+
+        /// <summary>
+        /// Puts the character back on the navmesh, in front of you.
+        ///
+        /// Worth its own button because the spawn point is a guess: it picks the first walkable
+        /// spot on a ladder outward from where you were looking, and in a cluttered room that
+        /// can be behind you or on the far side of a couch. Re-spawning is faster than walking
+        /// over to find out where it went.
+        /// </summary>
+        public void RespawnCharacter()
+        {
+            if (characterSpawner == null)
+            {
+                Report("no character spawner in the scene");
+                return;
+            }
+
+            if (!characterSpawner.Spawn())
+            {
+                Report($"respawn refused: {characterSpawner.LastFailure}");
+                return;
+            }
+
+            Report("character respawned");
+            _dirty = true;
+        }
+
+        /// <summary>
+        /// Stops the character where she stands, without leaving the character phase.
+        ///
+        /// This gets a button of its own rather than another job for the scan toggle. Every
+        /// other control on the panel is useful BETWEEN actions; this is the only one that is
+        /// useful during one -- and the button it would otherwise have shared is showing
+        /// RESPAWN by then, so the press you reach for to stop a walk would have been the press
+        /// that starts a new one somewhere else.
+        ///
+        /// Deliberately not greyed out in the scan phase. A non-interactable Selectable
+        /// receives no pointer events at all, which is exactly how a broken button behaves --
+        /// the same reasoning that left the phase button interactable while it was still
+        /// locked. It says why instead.
+        /// </summary>
+        public void HaltCharacter()
+        {
+            if (characterDirector == null)
+            {
+                Report("no character director in the scene");
+                Debug.LogWarning($"{Tag} Cannot stop the character: there is no " +
+                                 $"RoomCharacterDirector in the scene, so nothing is driving " +
+                                 $"one to stop.");
+                return;
+            }
+
+            // Halt already declines when nothing is moving, and that refusal is worth saying
+            // out loud: on a headset a button that silently does nothing reads as broken rather
+            // than as inapplicable.
+            Report(characterDirector.Halt() ? "character stopped" : "nothing to stop");
+            _dirty = true;
+        }
+
+        /// <summary>
+        /// The scan-toggle button does two different jobs, one per phase.
+        ///
+        /// Overloading a button is normally worth avoiding, but START/STOP SCANNING has no
+        /// meaning once the scan has been handed to the navmesh, and the alternative is a
+        /// button sitting inert through the whole second half of the flow. The label is
+        /// rewritten to match, so what it does is never in question -- only what it did a
+        /// phase ago.
+        /// </summary>
+        private void ScanToggleOrRespawn()
+        {
+            if (_phase == Phase.Character) RespawnCharacter();
+            else ToggleScanning();
+        }
+
+        /// <summary>
+        /// Labels the phase button with the direction it will go, matching how the scan toggle
+        /// names its action rather than its state.
+        /// </summary>
+        private void UpdatePhaseLabel()
+        {
+            if (_nextPhaseButton == null) return;
+
+            var label = _nextPhaseButton.GetComponentInChildren<Text>();
+            if (label != null)
+                label.text = _phase == Phase.Character ? "BACK TO SCAN" : "NEXT PHASE";
         }
 
         /// <summary>
@@ -1020,6 +1221,15 @@ namespace ConvaiRoom
             _builder.AppendLine(DiskLine());
             _builder.AppendLine(AnchorLine());
             _builder.AppendLine(NavMeshLine());
+            _builder.AppendLine(CharacterLine());
+
+            // Only while it can be acted on. The aiming hint is the one thing about phase 2
+            // that is not discoverable -- the marker does not appear until you already point
+            // at the floor, which is the thing you have to be told to do.
+            if (_phase == Phase.Character)
+                _builder.AppendLine("<color=#9a9aa0>point at the floor and pull the trigger to " +
+                                    "send it walking</color>");
+
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
 
@@ -1074,6 +1284,37 @@ namespace ConvaiRoom
 
             return $"navmesh   : <color=#7fd97f>YES</color> - " +
                    $"{navMeshBuilder.ObstacleCount} obstacles{triangles}";
+        }
+
+        /// <summary>
+        /// Where the character is and what it is doing.
+        ///
+        /// Distance is the useful number rather than a position: a coordinate means nothing to
+        /// someone wearing the headset, and "4.2 m away" tells you whether to turn around and
+        /// look for it. Silent in the scan phase -- a line about a character that has
+        /// deliberately not been spawned yet is noise on the panel through all of phase 1.
+        /// </summary>
+        private string CharacterLine()
+        {
+            if (_phase != Phase.Character) return "phase     : <color=#9a9aa0>SCAN</color>";
+
+            if (characterSpawner == null || !characterSpawner.IsSpawned)
+                return "character : <color=#ff8080>GONE</color> - press RESPAWN";
+
+            var head = Camera.main;
+            var distance = head != null
+                ? Vector3.Distance(head.transform.position,
+                                   characterSpawner.Character.transform.position)
+                : -1f;
+
+            var where = distance >= 0f ? $"{distance:F1} m away" : "somewhere in the room";
+
+            if (characterDirector == null)
+                return $"character : <color=#7fd97f>HERE</color> - {where}";
+
+            var doing = characterDirector.IsMoving ? "walking" : "waiting";
+
+            return $"character : <color=#7fd97f>{doing.ToUpperInvariant()}</color> - {where}";
         }
 
         private string Kilobytes() => $"{_diskBytes / 1024f:0.0} KB";
