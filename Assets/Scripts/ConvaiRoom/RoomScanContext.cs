@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.Text;
 using Convai.Runtime;
+using Convai.Runtime.Actions;
 using Convai.Runtime.Components;
 using Convai.Runtime.SceneMetadata;
+using Convai.Shared.Types;
 using RoomScan;
 using UnityEngine;
 
@@ -128,12 +130,6 @@ namespace ConvaiRoom
         /// </summary>
         private readonly List<Described> _described = new List<Described>();
 
-        /// <summary>
-        /// Target names handed to the character's action registry, so the previous scan's can be
-        /// withdrawn before a new one is registered. Without this, re-loading a scan leaves her
-        /// able to be sent to furniture that is no longer in the room.
-        /// </summary>
-        private readonly List<string> _registeredTargets = new List<string>();
 
         private void Awake()
         {
@@ -191,20 +187,25 @@ namespace ConvaiRoom
                 if (entry.Proxy == null) continue;
 
                 var description = Describe(entry.Proxy, entry.Data, source.Scan, centre, names[i]);
-                _described.Add(new Described(names[i], Label(entry.Data), description, entry.Proxy));
+                _described.Add(new Described(names[i].Name, Label(entry.Data), description, entry.Proxy));
                 DescribedCount++;
             }
 
             if (verboseLogging)
+            {
+                var described = new List<string>(_described.Count);
+                foreach (var entry in _described) described.Add(entry.Name);
+
                 Debug.Log($"{Tag} Described {DescribedCount} of {source.Rebuilt.Count} scanned " +
-                          $"objects to Convai.");
+                          $"objects to Convai: {string.Join(", ", described)}");
+            }
 
             // A scan can be re-loaded with the character already standing there. The world
-            // objects re-sync on their own -- the SDK watches its registry -- but the room
-            // summary and the action targets are ours to re-send, and stale ones would have her
-            // describing the room she was told about, and walking to furniture that has gone.
+            // objects and the walk targets both re-sync on their own -- the SDK polls one and
+            // watches the other -- but the room summary is ours to re-send, and a stale one would
+            // have her describing the room she was told about rather than the one now around her.
             if (voice != null && voice.State == RoomCharacterVoice.VoiceState.Ready)
-                SendToCharacter(voice.Character, announce: false);
+                PushRoomFacts(voice.Character, announce: false);
         }
 
         /// <summary>
@@ -249,15 +250,41 @@ namespace ConvaiRoom
             return result;
         }
 
+        /// <summary>A name for one object, plus the other names it will still answer to.</summary>
+        private readonly struct Naming
+        {
+            public readonly string Name;
+            public readonly List<string> Aliases;
+
+            public Naming(string name, List<string> aliases)
+            {
+                Name = name;
+                Aliases = aliases;
+            }
+        }
+
         /// <summary>
-        /// Gives every object a name she can say back to you.
+        /// Gives every object a name worth saying out loud.
         ///
-        /// Labels repeat -- a room has four chairs -- and four world objects all called "chair"
-        /// leaves her unable to tell you which one she means, or to tell them apart at all.
-        /// A lone object of its kind keeps the bare label, because "chair 1" when there is only
-        /// one chair reads like there is a chair 2 somewhere.
+        /// Labels repeat -- a room has four chairs -- and numbering them "chair 1" through
+        /// "chair 4" is unusable in conversation twice over: you cannot say which one you mean,
+        /// and neither can she. The numbers are an index into a list only the code can see.
+        ///
+        /// So a repeated object is named after the nearest thing that is one of a kind: "chair by
+        /// the couch". That is a name both ends of the conversation can resolve by looking. The
+        /// landmark has to be unique itself, or "the chair by the chair" is no better than a
+        /// number. Where the landmarks run out -- four chairs and nothing else in the room --
+        /// the remainder fall back to numbering, which is at least still unambiguous.
+        ///
+        /// The number survives as an ALIAS on every repeated object, so "chair 2" keeps working
+        /// even once the primary name is spatial. That matters because the numbers are what the
+        /// panel and the logs show, and a name you can read but not say would be worse than the
+        /// one this replaces.
+        ///
+        /// A lone object of its kind keeps the bare label. "chair 1" when there is only one chair
+        /// reads like there is a chair 2 somewhere.
         /// </summary>
-        private static List<string> NameThem(List<RoomScanRebuilder.RebuiltObject> chosen)
+        private static List<Naming> NameThem(List<RoomScanRebuilder.RebuiltObject> chosen)
         {
             var totals = new Dictionary<string, int>();
             foreach (var entry in chosen)
@@ -267,31 +294,116 @@ namespace ConvaiRoom
                 totals[label] = count + 1;
             }
 
+            // Ordinals first and independently of the spatial pass, so an object's number is its
+            // position among its own kind in file order -- stable, and the same number the panel
+            // and the logs will show whether or not a landmark was found for it.
+            var ordinals = new int[chosen.Count];
             var seen = new Dictionary<string, int>();
-            var names = new List<string>(chosen.Count);
-
-            foreach (var entry in chosen)
+            for (var i = 0; i < chosen.Count; i++)
             {
-                var label = Label(entry.Data);
-
-                if (totals[label] == 1)
-                {
-                    names.Add(Clamp(label, MaxNameLength));
-                    continue;
-                }
-
+                var label = Label(chosen[i].Data);
                 seen.TryGetValue(label, out var index);
                 index++;
                 seen[label] = index;
-
-                names.Add(Clamp($"{label} {index}", MaxNameLength));
+                ordinals[i] = index;
             }
 
-            return names;
+            var landmarks = LandmarkIndices(chosen, totals);
+            var spatial = AssignLandmarks(chosen, totals, landmarks);
+
+            var result = new List<Naming>(chosen.Count);
+            for (var i = 0; i < chosen.Count; i++)
+            {
+                var label = Label(chosen[i].Data);
+
+                if (totals[label] == 1)
+                {
+                    result.Add(new Naming(Clamp(label, MaxNameLength), new List<string>()));
+                    continue;
+                }
+
+                var numbered = $"{label} {ordinals[i]}";
+                var name = spatial[i] != null
+                    ? Clamp($"{label} by the {spatial[i]}", MaxNameLength)
+                    : Clamp(numbered, MaxNameLength);
+
+                // Never alias a name to itself -- the fallback case has already used the number
+                // as the primary name, and a duplicate entry in the ladder is just noise.
+                var aliases = new List<string>();
+                if (name != numbered) aliases.Add(Clamp(numbered, MaxNameLength));
+
+                result.Add(new Naming(name, aliases));
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Which objects are fit to name others by: the ones whose label occurs exactly once, so
+        /// saying "by the couch" points at one place rather than at a category.
+        /// </summary>
+        private static List<int> LandmarkIndices(
+            List<RoomScanRebuilder.RebuiltObject> chosen,
+            Dictionary<string, int> totals)
+        {
+            var landmarks = new List<int>();
+            for (var i = 0; i < chosen.Count; i++)
+                if (totals[Label(chosen[i].Data)] == 1) landmarks.Add(i);
+
+            return landmarks;
+        }
+
+        /// <summary>
+        /// Pairs each repeated object with its own landmark, closest pairs first.
+        ///
+        /// Greedy over every candidate pair sorted by distance, rather than each object simply
+        /// taking its nearest landmark: two chairs either side of one couch would both be "the
+        /// chair by the couch", which is the exact ambiguity this is here to remove. Claiming a
+        /// landmark takes it out of the running for the rest of its group, so the second chair
+        /// moves on to the next nearest thing -- or to a number if the room has nothing else.
+        /// </summary>
+        private static string[] AssignLandmarks(
+            List<RoomScanRebuilder.RebuiltObject> chosen,
+            Dictionary<string, int> totals,
+            List<int> landmarks)
+        {
+            var assigned = new string[chosen.Count];
+            if (landmarks.Count == 0) return assigned;
+
+            var pairs = new List<(int Member, int Landmark, float Distance)>();
+            for (var i = 0; i < chosen.Count; i++)
+            {
+                if (totals[Label(chosen[i].Data)] == 1) continue;
+
+                var from = chosen[i].Data.position.ToVector3();
+                foreach (var landmark in landmarks)
+                {
+                    var to = chosen[landmark].Data.position.ToVector3();
+                    pairs.Add((i, landmark, Vector3.Distance(from, to)));
+                }
+            }
+
+            pairs.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+
+            // Claimed per GROUP, not globally: a couch can be the landmark for a chair and for a
+            // lamp at the same time without either becoming ambiguous, because the label in front
+            // of "by the couch" already tells them apart.
+            var claimed = new HashSet<string>();
+            foreach (var pair in pairs)
+            {
+                if (assigned[pair.Member] != null) continue;
+
+                var key = Label(chosen[pair.Member].Data) + "|" + Label(chosen[pair.Landmark].Data);
+                if (!claimed.Add(key)) continue;
+
+                assigned[pair.Member] = Label(chosen[pair.Landmark].Data);
+            }
+
+            return assigned;
         }
 
         private string Describe(GameObject proxy, ScannedObject data, RoomScanFile scan,
-                                Vector3 centre, string name)
+                                Vector3 centre, Naming naming)
         {
             if (!proxy.TryGetComponent<ConvaiObjectMetadata>(out var metadata))
                 metadata = proxy.AddComponent<ConvaiObjectMetadata>();
@@ -303,11 +415,44 @@ namespace ConvaiRoom
             // already connected.
             var description = BuildDescription(data, scan, centre);
 
-            metadata.ObjectName = name;
+            metadata.ObjectName = naming.Name;
             metadata.ObjectDescription = description;
             metadata.IncludeInMetadata = true;
 
+            MakeWalkable(proxy, naming, description);
+
             return description;
+        }
+
+        /// <summary>
+        /// Makes the object somewhere she can be sent, under the same name she describes it by.
+        ///
+        /// A ConvaiActionTarget component rather than a call to Actions.RegisterObject, for two
+        /// reasons. It carries aliases, which the register call has no parameter for and which
+        /// are what keep "chair 2" working alongside "chair by the couch". And it is POLLED by
+        /// each character's config builder rather than pushed into one character's registry, so
+        /// it needs no bookkeeping across a respawn: the target belongs to the box, dies with the
+        /// box when the scan is reloaded, and is picked up by whichever character is standing
+        /// there without anything having to re-register it.
+        /// </summary>
+        private void MakeWalkable(GameObject proxy, Naming naming, string description)
+        {
+            if (!proxy.TryGetComponent<ConvaiActionTarget>(out var target))
+            {
+                // Nothing to switch off if there is nothing there, and no reason to add a
+                // component only to disable it.
+                if (!makeObjectsWalkable) return;
+                target = proxy.AddComponent<ConvaiActionTarget>();
+            }
+
+            target.TargetName = naming.Name;
+            target.Description = description;
+            target.Aliases = naming.Aliases;
+            target.Kind = ConvaiActionTargetKind.Object;
+
+            // The component registers on enable and withdraws on disable, so this is the whole
+            // implementation of the toggle -- including switching it off mid-session.
+            target.enabled = makeObjectsWalkable;
         }
 
         /// <summary>
@@ -350,58 +495,7 @@ namespace ConvaiRoom
         // -----------------------------------------------------------------
 
         private void HandleCharacterReady(ConvaiCharacter character) =>
-            SendToCharacter(character, announce: remarkOnArrival);
-
-        /// <summary>
-        /// Hands the character everything the scan has to give her, in the one order that works.
-        ///
-        /// Targets before facts, deliberately. Both go out on the same batched sync, and the
-        /// facts include the contents list -- the sentence that names the couch. Registering the
-        /// couch first means the name is already resolvable by the time she is told it exists,
-        /// rather than being asked about a place she cannot yet be sent to.
-        /// </summary>
-        private void SendToCharacter(ConvaiCharacter character, bool announce)
-        {
-            RegisterTargets(character);
-            PushRoomFacts(character, announce);
-        }
-
-        /// <summary>
-        /// Makes the scanned objects places she can be sent to.
-        ///
-        /// The SDK's Move To executor resolves whatever name the backend sends against this
-        /// registry, so a name registered here is the difference between "walk to the couch"
-        /// working and coming back as an unresolved target. The names are the same ones the world
-        /// objects carry, which is what lets her act on the thing she has just been describing.
-        ///
-        /// Nothing here drives the walk. The executor on the prefab does that, over the navmesh
-        /// baked in phase 1 -- this only says where the places are.
-        /// </summary>
-        private void RegisterTargets(ConvaiCharacter character)
-        {
-            if (character == null) return;
-
-            // Withdrawn first, and unconditionally: switching the toggle off mid-session should
-            // take away the targets rather than freeze whichever set was registered last.
-            foreach (var name in _registeredTargets) character.Actions.UnregisterTarget(name);
-            _registeredTargets.Clear();
-
-            if (!makeObjectsWalkable) return;
-
-            foreach (var entry in _described)
-            {
-                // A proxy destroyed under us is a target with nowhere to walk, which fails at the
-                // point she tries rather than here, where it can simply be left out.
-                if (entry.Proxy == null) continue;
-
-                character.Actions.RegisterObject(entry.Name, entry.Description, entry.Proxy);
-                _registeredTargets.Add(entry.Name);
-            }
-
-            if (verboseLogging)
-                Debug.Log($"{Tag} Registered {_registeredTargets.Count} walk targets: " +
-                          $"{string.Join(", ", _registeredTargets)}");
-        }
+            PushRoomFacts(character, announce: remarkOnArrival);
 
         private void PushRoomFacts(ConvaiCharacter character, bool announce)
         {

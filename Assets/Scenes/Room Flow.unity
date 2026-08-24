@@ -7853,6 +7853,7 @@ GameObject:
   - component: {fileID: 1339185270}
   - component: {fileID: 1339185272}
   - component: {fileID: 1339185273}
+  - component: {fileID: 1339185274}
   m_Layer: 0
   m_Name: Room Scan
   m_TagString: Untagged
@@ -8099,8 +8100,30 @@ MonoBehaviour:
   voice: {fileID: 1174230538}
   describeObjects: 1
   describeRoom: 1
+  makeObjectsWalkable: 1
   maxObjects: 40
   remarkOnArrival: 0
+  verboseLogging: 1
+--- !u!114 &1339185274
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e87f45b65fc43549bafa4c999868b8b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomScanPointer
+  rebuilder: {fileID: 1339185264}
+  voice: {fileID: 1174230538}
+  rayOrigin: {fileID: 0}
+  maxDistance: 8
+  aimPadding: 0.08
+  dwellSeconds: 0.3
+  highlightAimed: 1
+  highlightColor: {r: 1, g: 0.85, b: 0.3, a: 1}
   verboseLogging: 1
 --- !u!1 &1382633687
 GameObject:
