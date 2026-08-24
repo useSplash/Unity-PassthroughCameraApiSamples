@@ -94,6 +94,11 @@ namespace ConvaiRoom
                  "drives it -- it follows the spawner on its own.")]
         public RoomCharacterVoice characterVoice;
 
+        [Tooltip("Optional, and read only. Tells the character what the scan found; the panel " +
+                 "reports how many objects she was told about, which is the only way to see " +
+                 "from inside the headset that she knows the room at all.")]
+        public RoomScanContext roomContext;
+
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -258,6 +263,7 @@ namespace ConvaiRoom
             if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
             if (characterSpawner == null) characterSpawner = FindAnyObjectByType<RoomCharacterSpawner>();
             if (characterVoice == null) characterVoice = FindAnyObjectByType<RoomCharacterVoice>();
+            if (roomContext == null) roomContext = FindAnyObjectByType<RoomScanContext>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -1316,7 +1322,17 @@ namespace ConvaiRoom
             // Whether she is WALKING is deliberately not reported. That is Convai's business
             // now -- the panel has no hand in where she goes, so a state it does not drive is
             // a state it should not claim to know.
-            return $"character : {VoiceWord()} - {where}";
+            //
+            // The object count rides along on the same line rather than taking one of its own,
+            // for the same reason the session state does: the block is out of lines. It is
+            // silent at zero, which is honest -- an empty room is what a character who was
+            // told nothing looks like, and "0 objects" says so more clearly than nothing at all
+            // would, but only once there is a component that could have counted them.
+            var known = roomContext != null && roomContext.DescribedCount > 0
+                ? $", knows {roomContext.DescribedCount} objects"
+                : "";
+
+            return $"character : {VoiceWord()} - {where}{known}";
         }
 
         /// <summary>

@@ -101,6 +101,17 @@ namespace ConvaiRoom
         /// </summary>
         public bool HasMicrophone { get; private set; }
 
+        /// <summary>
+        /// Raised once the character is connected AND has reported ready, which is the first
+        /// moment anything can be told to her.
+        ///
+        /// Ready rather than connected, and the distinction is load-bearing for listeners: the
+        /// SDK batches dynamic-context and scene-metadata updates and drops them on the floor
+        /// while the character is not in conversation, so anything pushed off the back of a
+        /// mere connect is silently thrown away.
+        /// </summary>
+        public event Action<ConvaiCharacter> OnReady;
+
         private void Awake()
         {
             if (spawner == null) spawner = FindAnyObjectByType<RoomCharacterSpawner>();
@@ -254,6 +265,8 @@ namespace ConvaiRoom
 
                 Debug.Log($"{Tag} '{character.CharacterName}' is connected and ready " +
                           $"(microphone={HasMicrophone}). Talk to her.");
+
+                OnReady?.Invoke(character);
             }
             catch (Exception ex)
             {

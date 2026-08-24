@@ -2245,6 +2245,10 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 1339185264}
     - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: roomContext
+      value: 
+      objectReference: {fileID: 1339185273}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
       propertyPath: characterVoice
       value: 
       objectReference: {fileID: 1174230538}
@@ -7811,6 +7815,7 @@ GameObject:
   - component: {fileID: 1339185271}
   - component: {fileID: 1339185270}
   - component: {fileID: 1339185272}
+  - component: {fileID: 1339185273}
   m_Layer: 0
   m_Name: Room Scan
   m_TagString: Untagged
@@ -8039,6 +8044,25 @@ MonoBehaviour:
   rebuilder: {fileID: 1339185264}
   roomManager: {fileID: 502312525}
   mrukTimeoutSeconds: 5
+  verboseLogging: 1
+--- !u!114 &1339185273
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8964498da27edd44a97a8d12e3921d20, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomScanContext
+  rebuilder: {fileID: 1339185264}
+  voice: {fileID: 1174230538}
+  describeObjects: 1
+  describeRoom: 1
+  maxObjects: 40
+  remarkOnArrival: 0
   verboseLogging: 1
 --- !u!1 &1382633687
 GameObject:
