@@ -89,6 +89,11 @@ namespace ConvaiRoom
                  "one the panel stays in phase 1 and says so.")]
         public RoomCharacterSpawner characterSpawner;
 
+        [Tooltip("Optional, and read only. Opens the Convai session for the spawned character; " +
+                 "this is where the panel gets 'connecting' and 'listening' from. Nothing here " +
+                 "drives it -- it follows the spawner on its own.")]
+        public RoomCharacterVoice characterVoice;
+
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -197,6 +202,11 @@ namespace ConvaiRoom
         private int _tracked;
         private float _nextCountsPoll;
 
+        // Convai session, as last drawn. Only here so a change can be spotted -- the line
+        // itself is built from the voice component each redraw.
+        private RoomCharacterVoice.VoiceState _voiceState = RoomCharacterVoice.VoiceState.Idle;
+        private bool _voiceSpeaking;
+
         // Disk.
         private DiskState _diskState = DiskState.Missing;
         private long _diskBytes;
@@ -247,6 +257,7 @@ namespace ConvaiRoom
             if (liveVisualizer == null) liveVisualizer = FindAnyObjectByType<LiveScanVisualizer>();
             if (detectionAgent == null) detectionAgent = FindAnyObjectByType<ObjectDetectionAgent>();
             if (characterSpawner == null) characterSpawner = FindAnyObjectByType<RoomCharacterSpawner>();
+            if (characterVoice == null) characterVoice = FindAnyObjectByType<RoomCharacterVoice>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -431,6 +442,12 @@ namespace ConvaiRoom
                 RefreshDiskState();
             }
 
+            // Polled rather than evented, and cheap enough to do every frame: the session moves
+            // through mic -> connecting -> listening in the first couple of seconds of the
+            // character phase, and a readout that only catches up on the once-a-second forced
+            // redraw spends that whole window showing the wrong step.
+            PollVoice();
+
             if (Time.time >= _lastActionExpiresAt)
             {
                 _lastActionExpiresAt = float.PositiveInfinity;
@@ -476,6 +493,21 @@ namespace ConvaiRoom
 
             _ready = ready;
             _tracked = _snapshot.Count;
+            _dirty = true;
+        }
+
+        /// <summary>Marks the panel dirty when the Convai session moves on.</summary>
+        private void PollVoice()
+        {
+            if (characterVoice == null) return;
+
+            var state = characterVoice.State;
+            var speaking = characterVoice.IsSpeaking;
+
+            if (state == _voiceState && speaking == _voiceSpeaking) return;
+
+            _voiceState = state;
+            _voiceSpeaking = speaking;
             _dirty = true;
         }
 
@@ -868,7 +900,10 @@ namespace ConvaiRoom
             UpdateScanToggleLabel();
             _dirty = true;
 
-            Report("character phase -- she is listening");
+            // Not "she is listening" -- the session takes a couple of seconds to open, and on
+            // a first run it stops to ask for the microphone. The voice line reports the
+            // actual step; this only says the phase changed.
+            Report("character phase -- connecting her");
             Debug.Log($"{Tag} Entered the character phase at " +
                       $"{characterSpawner.LastSpawnPoint:F2}.");
         }
@@ -1244,11 +1279,17 @@ namespace ConvaiRoom
         }
 
         /// <summary>
-        /// Where the character is and what it is doing.
+        /// Where the character is and whether her session is up.
+        ///
+        /// Both on one line, and deliberately: the status block is budgeted at seven lines in
+        /// the prefab baker and the character phase already fills it, so a second line about
+        /// the session would push the whole block down over the controls readout underneath.
+        /// They belong together anyway -- standing there and being connected are the two halves
+        /// of the same question, and it is the pair that tells you which of them has failed.
         ///
         /// Distance is the useful number rather than a position: a coordinate means nothing to
         /// someone wearing the headset, and "4.2 m away" tells you whether to turn around and
-        /// look for it. Silent in the scan phase -- a line about a character that has
+        /// look for her. Silent in the scan phase -- a line about a character that has
         /// deliberately not been spawned yet is noise on the panel through all of phase 1.
         /// </summary>
         private string CharacterLine()
@@ -1258,6 +1299,12 @@ namespace ConvaiRoom
             if (characterSpawner == null || !characterSpawner.IsSpawned)
                 return "character : <color=#ff8080>GONE</color> - press RESPAWN";
 
+            // The reason takes the distance's place rather than following it. A session that
+            // did not open is the only thing worth reading on this line, and how far away she
+            // is standing while it failed is not going to help.
+            if (characterVoice != null && characterVoice.State == RoomCharacterVoice.VoiceState.Failed)
+                return $"character : <color=#ff8080>FAILED</color> - {characterVoice.LastFailure}";
+
             var head = Camera.main;
             var distance = head != null
                 ? Vector3.Distance(head.transform.position,
@@ -1266,10 +1313,46 @@ namespace ConvaiRoom
 
             var where = distance >= 0f ? $"{distance:F1} m away" : "somewhere in the room";
 
-            // Presence only. Whether she is walking is Convai's business now -- the panel has
-            // no hand in where she goes, so a state it does not drive is a state it should not
-            // claim to report.
-            return $"character : <color=#7fd97f>HERE</color> - {where}";
+            // Whether she is WALKING is deliberately not reported. That is Convai's business
+            // now -- the panel has no hand in where she goes, so a state it does not drive is
+            // a state it should not claim to know.
+            return $"character : {VoiceWord()} - {where}";
+        }
+
+        /// <summary>
+        /// The one word for how far the conversation has got, coloured by whether it needs
+        /// anything from you.
+        ///
+        /// This is the only place the session is visible from inside the headset, and the
+        /// states it separates all look identical through the visor: a character standing in
+        /// silence is either still connecting, connected and waiting for you to speak, or
+        /// connected with no microphone and unable to hear you at all.
+        /// </summary>
+        private string VoiceWord()
+        {
+            // Presence only, which is what the panel could say before there was a session to
+            // report. Worth keeping rather than complaining: the spawn and the placement are
+            // still worth looking at with the voice component missing.
+            if (characterVoice == null) return "<color=#7fd97f>HERE</color>";
+
+            switch (characterVoice.State)
+            {
+                case RoomCharacterVoice.VoiceState.WaitingForMicrophone:
+                    return "<color=#ffc44d>MIC PROMPT</color>";
+
+                case RoomCharacterVoice.VoiceState.Connecting:
+                    return "<color=#ffc44d>CONNECTING</color>";
+
+                case RoomCharacterVoice.VoiceState.Ready:
+                    if (characterVoice.IsSpeaking) return "<color=#7fd97f>SPEAKING</color>";
+
+                    return characterVoice.HasMicrophone
+                        ? "<color=#7fd97f>LISTENING</color>"
+                        : "<color=#ffc44d>DEAF (no mic)</color>";
+
+                default:
+                    return "<color=#ffc44d>NO SESSION</color>";
+            }
         }
 
         private string Kilobytes() => $"{_diskBytes / 1024f:0.0} KB";

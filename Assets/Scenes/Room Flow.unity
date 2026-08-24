@@ -2245,6 +2245,10 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 1339185264}
     - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
+      propertyPath: characterVoice
+      value: 
+      objectReference: {fileID: 1174230538}
+    - target: {fileID: 6082549053788687955, guid: 5177be8639606634daa47afb1d342fa8, type: 3}
       propertyPath: detectionAgent
       value: 
       objectReference: {fileID: 2128446021}
@@ -2920,7 +2924,7 @@ MonoBehaviour:
   _managedPushToTalkController: {fileID: 0}
   _managedPushToTalkControllerAutoCreated: 0
   _sceneInstaller: {fileID: 0}
-  _explicitPlayer: {fileID: 0}
+  _explicitPlayer: {fileID: 905549889}
   _explicitCharacters: []
   _explicitConversationTarget: {fileID: 0}
 --- !u!4 &502312527
@@ -6731,6 +6735,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1174230537}
   - component: {fileID: 1174230536}
+  - component: {fileID: 1174230538}
   m_Layer: 0
   m_Name: Room Character
   m_TagString: Untagged
@@ -6773,6 +6778,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1174230538
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1174230534}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 830c5829a0b2f89478165816528ff335, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomCharacterVoice
+  spawner: {fileID: 1174230536}
+  requestMicrophonePermission: 1
+  microphoneTimeoutSeconds: 30
+  verboseLogging: 1
 --- !u!1 &1174893042
 GameObject:
   m_ObjectHideFlags: 0

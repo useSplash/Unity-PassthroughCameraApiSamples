@@ -1,9 +1,5 @@
-using System;
 using System.Collections;
 using Convai.Runtime.Adapters.Networking;
-using Convai.Runtime.Core.Async;
-using Convai.Runtime.Core.Coordinators;
-using Convai.Runtime.Room;
 using Meta.XR.MRUtilityKit;
 using RoomScan;
 using UnityEngine;
@@ -11,22 +7,31 @@ using UnityEngine;
 namespace ConvaiRoom
 {
     /// <summary>
-    /// Orders startup for a Convai character living inside a replayed room scan: wait for
-    /// MRUK to report a room, replay the scan into it, then open the session.
+    /// Orders startup for the room: wait for MRUK to report a room, then replay the scan into
+    /// it.
     ///
-    /// This owns the single connect call, so <see cref="ConvaiRoomManager"/> must have
-    /// Connect On Start switched off. Two connects racing each other is the failure this
-    /// guards against -- the second one wins and the first session is silently orphaned.
+    /// This used to open the Convai session here as well, and could not: the room the SDK
+    /// connects is composed around a character, and in this flow there is no character until
+    /// phase 2 spawns one. Connecting at startup therefore failed every time on
+    /// "Failed to resolve any owned characters", which reads like a broken connection rather
+    /// than a connection made too early. The session now belongs to
+    /// <see cref="RoomCharacterVoice"/>, which opens it when a character actually exists.
     ///
-    /// Each stage degrades on its own: no scan still connects, the character simply has
-    /// nothing replayed around it.
+    /// What is left here is still worth its own component: the scan has to be replayed before
+    /// anything can be baked or stood on, and it has to wait for MRUK or it lands in raw world
+    /// space. Each stage degrades on its own -- no MRUK still replays, just unanchored.
     /// </summary>
     public class ConvaiRoomBootstrap : MonoBehaviour
     {
+        private const string Tag = "[ConvaiRoomBootstrap]";
+
         [Header("Room scan")]
         public RoomScanRebuilder rebuilder;
 
         [Header("Convai")]
+        [Tooltip("Read only, and only to check its Connect On Start is off. Nothing here " +
+                 "connects -- the character's session is opened by RoomCharacterVoice once " +
+                 "there is a character to open it for.")]
         public ConvaiRoomManager roomManager;
 
         [Header("Startup")]
@@ -47,23 +52,36 @@ namespace ConvaiRoom
 
         private void Start()
         {
-            if (roomManager != null && roomManager.EffectiveConnectOnStart)
-            {
-                Debug.LogError("[ConvaiRoomBootstrap] ConvaiRoomManager has Connect On Start " +
-                               "enabled, so it will open its own session alongside this one. " +
-                               "Switch it off on the room manager (or its profile asset).");
-            }
+            WarnIfConnectingOnItsOwn();
 
             if (MRUK.Instance == null)
             {
-                Debug.LogError("[ConvaiRoomBootstrap] No MRUK in the scene. The scan will replay " +
-                               "in raw world space, so nothing will line up with the real room.");
+                Debug.LogError($"{Tag} No MRUK in the scene. The scan will replay in raw world " +
+                               $"space, so nothing will line up with the real room.");
                 Run();
                 return;
             }
 
             MRUK.Instance.RegisterSceneLoadedCallback(Run);
             StartCoroutine(RunIfMrukNeverReports());
+        }
+
+        /// <summary>
+        /// Says so when the room manager will try to connect by itself.
+        ///
+        /// It cannot succeed at startup -- there is no character yet -- so the only thing an
+        /// early connect produces is a failure in the log that looks exactly like the real
+        /// thing going wrong later. Worth a line of its own because the setting is on the room
+        /// manager, several components away from where the confusion appears.
+        /// </summary>
+        private void WarnIfConnectingOnItsOwn()
+        {
+            if (roomManager == null || !roomManager.EffectiveConnectOnStart) return;
+
+            Debug.LogError($"{Tag} ConvaiRoomManager has Connect On Start enabled, so it will " +
+                           $"try to open a session before the room has a character in it. That " +
+                           $"connect can only fail, and its error buries the real one. Switch " +
+                           $"Connect On Start off on the room manager (or its profile asset).");
         }
 
         /// <summary>
@@ -79,10 +97,10 @@ namespace ConvaiRoom
             yield return new WaitForSeconds(mrukTimeoutSeconds);
             if (_hasRun) yield break;
 
-            Debug.LogWarning($"[ConvaiRoomBootstrap] MRUK reported no room within " +
-                             $"{mrukTimeoutSeconds}s. Replaying the scan in raw world space " +
-                             $"-- fine on a desk, but on a headset it means Space Setup has " +
-                             $"not been run and nothing will line up with the real room.");
+            Debug.LogWarning($"{Tag} MRUK reported no room within {mrukTimeoutSeconds}s. " +
+                             $"Replaying the scan in raw world space -- fine on a desk, but on " +
+                             $"a headset it means Space Setup has not been run and nothing " +
+                             $"will line up with the real room.");
             Run();
         }
 
@@ -93,34 +111,15 @@ namespace ConvaiRoom
             _hasRun = true;
 
             if (rebuilder == null)
-                Debug.LogError("[ConvaiRoomBootstrap] No RoomScanRebuilder; nothing to replay.");
-            else
-                rebuilder.Rebuild();
-
-            Connect();
-        }
-
-        private async void Connect()
-        {
-            if (roomManager == null)
             {
-                Debug.LogError("[ConvaiRoomBootstrap] No ConvaiRoomManager to connect.");
+                Debug.LogError($"{Tag} No RoomScanRebuilder; nothing to replay.");
                 return;
             }
 
-            try
-            {
-                IConvaiOperation<RoomSession> operation = roomManager.ConnectAsync();
-                await operation.AsTask();
+            rebuilder.Rebuild();
 
-                if (verboseLogging)
-                    Debug.Log($"[ConvaiRoomBootstrap] Connected with " +
-                              $"{rebuilder?.Rebuilt?.Count ?? 0} boxes replayed.");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[ConvaiRoomBootstrap] Connect failed: {ex.Message}");
-            }
+            if (verboseLogging)
+                Debug.Log($"{Tag} Replayed {rebuilder.Rebuilt?.Count ?? 0} boxes.");
         }
     }
 }

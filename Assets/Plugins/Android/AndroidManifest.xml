@@ -22,5 +22,11 @@
   <uses-permission android:name="horizonos.permission.HEADSET_CAMERA" />
   <uses-feature android:name="oculus.software.handtracking" android:required="false" />
   <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
+  <!-- Convai listens hands-free, so the microphone is the whole input side of the
+       conversation. Declared here rather than left to Unity: Unity only injects RECORD_AUDIO
+       when it detects the Microphone API in user code, and the calls that open the mic are
+       inside the Convai package. Without this line the runtime permission request is refused
+       instantly with no dialog, and the character connects but never hears anything. -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <horizonos:uses-horizonos-sdk horizonos:minSdkVersion="68" horizonos:targetSdkVersion="74" />
 </manifest>

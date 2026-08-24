@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.AI;
 using Convai.Modules.BodyAnimation.Components;
@@ -82,6 +83,22 @@ namespace ConvaiRoom
         public string LastFailure { get; private set; } = "";
 
         /// <summary>
+        /// Raised with the new character once it is standing in the room and fully awake.
+        ///
+        /// This is how the Convai session finds out there is someone to connect --
+        /// <see cref="RoomCharacterVoice"/> listens rather than being called, so a character
+        /// that appears for any reason gets a session without the panel having to sequence the
+        /// two.
+        /// </summary>
+        public event Action<GameObject> OnSpawned;
+
+        /// <summary>
+        /// Raised just BEFORE the character is destroyed, which is the point of it: a session
+        /// can only be closed politely while there is still a character to close it on.
+        /// </summary>
+        public event Action OnDespawning;
+
+        /// <summary>
         /// Candidate distances as multiples of <see cref="preferredDistance"/>, in the order
         /// they are tried. The preferred distance first, then nearer and further, because in a
         /// small room the far end is often the only clear floor and the near end is often
@@ -158,6 +175,11 @@ namespace ConvaiRoom
                           $"agent={DescribeAgent()}).");
             }
 
+            // Last, and after the warnings above: whoever is listening is going to open a
+            // network session off the back of this, and that should happen with the character
+            // already fully placed and every complaint about it already in the log.
+            OnSpawned?.Invoke(Character);
+
             return true;
         }
 
@@ -191,6 +213,9 @@ namespace ConvaiRoom
             if (Character == null) return;
 
             if (verboseLogging) Debug.Log($"{Tag} Despawned '{Character.name}'.");
+
+            // Before the destroy, so listeners still have a character to wind down against.
+            OnDespawning?.Invoke();
 
             Destroy(Character);
             Character = null;
@@ -348,16 +373,24 @@ namespace ConvaiRoom
                     // Re-checked after sampling, not before. The sample is what decides where
                     // the character actually ends up, and it can pull a comfortable candidate
                     // back to the edge of the floor right next to the player.
-                    var toPlayer = hit.position - origin;
-                    toPlayer.y = 0f;
-                    if (toPlayer.sqrMagnitude < minPlayerDistance * minPlayerDistance) continue;
+                    var outward = hit.position - origin;
+                    outward.y = 0f;
+                    if (outward.sqrMagnitude < minPlayerDistance * minPlayerDistance) continue;
 
                     point = hit.position;
 
                     // Turned to face the player. A character that arrives with its back to you
                     // reads as one that has not noticed you rather than one that is waiting.
-                    var back = -toPlayer.normalized;
-                    facing = Quaternion.LookRotation(back, Vector3.up);
+                    //
+                    // This points the prefab ROOT's +Z at the player, and so it is only as
+                    // right as the prefab is: the rig underneath has to face the root's +Z too.
+                    // Room Character Camila used to carry a 180 degree yaw on the mesh node --
+                    // authored so she faced a camera at the origin -- and that turned this line
+                    // into the exact opposite of what it says. The symptom is a character who
+                    // is always looking away no matter where you stand, which reads as broken
+                    // maths here rather than a rotation on a child transform. If she ever comes
+                    // back facing away, check the rig's local rotation before touching this.
+                    facing = Quaternion.LookRotation(-outward.normalized, Vector3.up);
                     return true;
                 }
             }
