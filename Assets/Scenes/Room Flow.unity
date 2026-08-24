@@ -2819,6 +2819,8 @@ GameObject:
   - component: {fileID: 502312527}
   - component: {fileID: 502312526}
   - component: {fileID: 502312525}
+  - component: {fileID: 502312529}
+  - component: {fileID: 502312528}
   m_Layer: 0
   m_Name: '[Convai Manager]'
   m_TagString: Untagged
@@ -2876,7 +2878,7 @@ MonoBehaviour:
     <StartSecs>k__BackingField: 0.2
     <StopSecs>k__BackingField: 0.2
     <MinVolume>k__BackingField: 0.6
-  _visionContextMode: 0
+  _visionContextMode: 1
   _visionInputSettings:
     _sampleIntervalSeconds: 1
     _framesPerTurn: 5
@@ -2898,7 +2900,7 @@ MonoBehaviour:
   _startWaitTimeoutMs: 5000
   _autoMicStartDelaySeconds: 0.5
   <Debug>k__BackingField: 0
-  _lastValidatedConnectionType: 0
+  _lastValidatedConnectionType: 1
   _visionSetupPrompted: 0
 --- !u!114 &502312526
 MonoBehaviour:
@@ -2946,6 +2948,41 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &502312528
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 502312524}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: de2c99b1d128e4514ad62859b9275b00, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Convai.Modules.Vision::Convai.Modules.Vision.ConvaiVisionPublisher
+  _frameSourceComponent: {fileID: 502312529}
+  _publishPolicy: 0
+  videoTrackName: unity-scene
+  publishFrameRateOverride: 0
+  publishBitrateOverride: 0
+--- !u!114 &502312529
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 502312524}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8b66a0506ca170141abe6099f65777fe, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Vision.Sources.QuestVisionFrameSource
+  _passthroughCameraAccess: {fileID: 217954772}
+  _sourceId: quest-passthrough
+  _maxOutputWidth: 1280
+  _maxOutputHeight: 720
+  _targetFrameRate: 15
+  _flipY: 1
 --- !u!1 &515420513
 GameObject:
   m_ObjectHideFlags: 0
@@ -7992,6 +8029,7 @@ MonoBehaviour:
   recorder: {fileID: 0}
   rebuilder: {fileID: 0}
   character: {fileID: 0}
+  visionPublisher: {fileID: 502312528}
 --- !u!114 &1339185270
 MonoBehaviour:
   m_ObjectHideFlags: 0

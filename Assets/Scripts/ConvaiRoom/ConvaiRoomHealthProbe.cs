@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Convai.Modules.Vision;
 using Convai.Runtime.Components;
+using Convai.Runtime.Vision.Sources;
 using Meta.XR.MRUtilityKit;
 using RoomScan;
 using UnityEngine;
@@ -42,6 +44,10 @@ namespace ConvaiRoom
         public RoomScanRebuilder rebuilder;
         public ConvaiCharacter character;
 
+        [Tooltip("Publishes passthrough frames to Convai. Optional -- without one the vision " +
+                 "line simply says the room is running blind, which is a valid setup.")]
+        public ConvaiVisionPublisher visionPublisher;
+
         private readonly StringBuilder _builder = new StringBuilder();
         private readonly List<string> _problems = new List<string>();
         private float _nextReportTime;
@@ -53,6 +59,7 @@ namespace ConvaiRoom
             if (recorder == null) recorder = FindAnyObjectByType<ObjectScanRecorder>();
             if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
             if (character == null) character = FindAnyObjectByType<ConvaiCharacter>();
+            if (visionPublisher == null) visionPublisher = FindAnyObjectByType<ConvaiVisionPublisher>();
         }
 
         private void Start() => Report();
@@ -79,6 +86,7 @@ namespace ConvaiRoom
             ReportScanFile();
             ReportReplay();
             ReportConvai();
+            ReportVision();
 
             var verdict = _problems.Count == 0
                 ? "ALL OK"
@@ -176,6 +184,49 @@ namespace ConvaiRoom
             Line("convai", present,
                  $"character={present} " +
                  $"inConversation={present && character.IsInConversation}");
+        }
+
+        /// <summary>
+        /// Whether the character is being fed passthrough frames.
+        ///
+        /// This is the line that exists because vision fails silently and in several different
+        /// ways that are indistinguishable from inside the headset: the components can be
+        /// missing, the frame source can fail to find PassthroughCameraAccess, the camera
+        /// permission can be refused, or everything can be wired and simply not publishing
+        /// because no session is open yet. She looks equally oblivious in all four cases.
+        ///
+        /// The frame count is the number that settles it. Publishing with frames climbing is
+        /// the only combination that means she is actually seeing the room.
+        ///
+        /// Passing on presence rather than on publishing, deliberately: not connected yet is
+        /// the normal state for most of a session's life, and a probe that shouts PROBLEM
+        /// through the whole scan phase is a probe people stop reading.
+        /// </summary>
+        private void ReportVision()
+        {
+            if (visionPublisher == null)
+            {
+                Line("vision", true, "publisher=none - running blind, scan metadata only");
+                return;
+            }
+
+            var source = visionPublisher.FrameSource;
+
+            var frames = source != null ? source.FrameCount : 0;
+            var capturing = source != null && source.IsCapturing;
+
+            // The status message is the frame source's own account of why it is not capturing --
+            // "PassthroughCameraAccess not found", a permission refusal, the wrong platform. It
+            // is the one string worth forwarding verbatim rather than summarising.
+            var status = source is IVisionFrameSourceStatusProvider reporter &&
+                         !string.IsNullOrEmpty(reporter.StatusMessage)
+                ? $" status={reporter.StatusMessage}"
+                : "";
+
+            Line("vision", source != null,
+                 $"publisher=yes source={(source != null ? source.SourceId : "MISSING")} " +
+                 $"capturing={capturing} publishing={visionPublisher.IsPublishing} " +
+                 $"frames={frames}{status}");
         }
 
         private void Line(string name, bool ok, string detail)
