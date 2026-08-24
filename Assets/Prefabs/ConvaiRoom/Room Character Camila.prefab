@@ -10897,6 +10897,7 @@ GameObject:
   - component: {fileID: 7024075609743190124}
   - component: {fileID: 9117874682787242883}
   - component: {fileID: 3378359256502040375}
+  - component: {fileID: 205058200494541277}
   m_Layer: 0
   m_Name: Room Character Camila
   m_TagString: Untagged
@@ -11158,12 +11159,14 @@ MonoBehaviour:
   _actionSets: []
   _definitions:
   - ActionName: Move To
-    Description: Walk over to the given object in the room.
+    Description: Walk to the named place, object, or person and stop at a natural
+      conversational distance. Use this when the character is asked to approach or
+      go to a specific target.
     Parameters: []
     TargetRequirement: 1
-    Executor: {fileID: 0}
+    Executor: {fileID: 205058200494541277}
     ExecutorTypeHint: 
-    TimeoutSeconds: 0
+    TimeoutSeconds: 45
     FailurePolicyOverride: 0
     AnswerDelivery: 0
     WaitForBotSpeech: 0
@@ -11181,7 +11184,7 @@ MonoBehaviour:
     AnswerDelivery: 0
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
-    _disabled: 0
+    _disabled: 1
     _category: 
   _objects: []
   _characters: []
@@ -11312,6 +11315,20 @@ MonoBehaviour:
   _autoCreateConversationFlow: 1
   _locomotionProviderOverride: {fileID: 0}
   _randomSeed: 0
+--- !u!114 &205058200494541277
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8345150164439981185}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1c12913bf7459104a84ee9bea60843e9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Convai.Modules.BodyAnimation::Convai.Modules.BodyAnimation.Executors.ConvaiWalkToActionExecutor
+  _characterComponent: {fileID: 0}
+  _arriveDistance: 1
 --- !u!1 &8483827831080387329
 GameObject:
   m_ObjectHideFlags: 0

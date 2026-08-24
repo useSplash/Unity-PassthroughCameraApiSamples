@@ -26,14 +26,19 @@ namespace ConvaiRoom
     ///     and has two chairs in it", and that summary is what makes her sound like she is
     ///     actually in the room rather than reciting an inventory.
     ///
+    ///   - ACTION TARGETS, the same objects registered again through the character's own action
+    ///     registry. Scene metadata is what she knows about; this is what she can be sent to.
+    ///     They are registered under the same names on purpose -- the couch she can describe and
+    ///     the couch she can walk to have to be one couch, or "go to the couch" resolves to
+    ///     nothing while she is in the middle of telling you about it.
+    ///
     /// Everything comes from the scan JSON by way of <see cref="RoomScanRebuilder"/> rather than
     /// re-reading the file, so what she is told and what is drawn in front of you are built from
     /// one parse and can never disagree.
     ///
-    /// Nothing here makes her ACT on any of it. These objects are described, not registered as
-    /// action targets, so "walk to the couch" is still not a thing she can do -- see
-    /// ConvaiCharacterActions.RegisterObject for that, and note the Move To and Look At actions
-    /// on the prefab have no executor yet.
+    /// Walking itself is not driven from here. The prefab's Move To action runs the SDK's own
+    /// ConvaiWalkToActionExecutor over the navmesh phase 1 baked; this only supplies the places
+    /// it can be pointed at. Nothing in this project decides where she goes.
     /// </summary>
     public class RoomScanContext : MonoBehaviour
     {
@@ -65,6 +70,13 @@ namespace ConvaiRoom
                  "context when she connects.")]
         public bool describeRoom = true;
 
+        [Tooltip("Register the same objects as action targets, so she can be asked to walk to " +
+                 "them.\n\n" +
+                 "Needs the prefab's Move To action to have an executor and the navmesh to be " +
+                 "baked. Switched off, she still knows everything in the room and simply cannot " +
+                 "be sent anywhere.")]
+        public bool makeObjectsWalkable = true;
+
         [Tooltip("Most objects to describe. A scan of a cluttered room can run to hundreds of " +
                  "boxes, and every one of them is context the model has to read on every turn. " +
                  "Over this, the best-observed survive -- a cluster seen forty times is a real " +
@@ -83,15 +95,45 @@ namespace ConvaiRoom
         /// <summary>How many objects she has been told about. Read by the panel.</summary>
         public int DescribedCount { get; private set; }
 
+        /// <summary>One scanned object as the character has been told about it.</summary>
+        private readonly struct Described
+        {
+            /// <summary>What she calls it. Unique within the scan -- see NameThem.</summary>
+            public readonly string Name;
+
+            /// <summary>The raw scan label, for counting kinds in the room summary.</summary>
+            public readonly string Label;
+
+            public readonly string Description;
+
+            /// <summary>The replayed box, which is the thing she actually walks to.</summary>
+            public readonly GameObject Proxy;
+
+            public Described(string name, string label, string description, GameObject proxy)
+            {
+                Name = name;
+                Label = label;
+                Description = description;
+                Proxy = proxy;
+            }
+        }
+
         /// <summary>
-        /// The labels of the objects actually described, in the order they were described.
+        /// What she has been told about, in the order it was described.
         ///
-        /// Kept rather than recomputed because the room summary has to agree with the world
-        /// objects exactly: working the counts out a second time from the scan file would have
-        /// her told "there are six chairs" while only four of them exist as things she can name,
-        /// any time the cap trims the list.
+        /// Kept rather than recomputed, because three separate things have to agree about it: the
+        /// world objects, the room summary's counts, and the action targets. Working the set out
+        /// again from the scan file for any one of them would have her told "there are six chairs"
+        /// while only four exist as things she can name, any time the cap trims the list.
         /// </summary>
-        private readonly List<string> _describedLabels = new List<string>();
+        private readonly List<Described> _described = new List<Described>();
+
+        /// <summary>
+        /// Target names handed to the character's action registry, so the previous scan's can be
+        /// withdrawn before a new one is registered. Without this, re-loading a scan leaves her
+        /// able to be sent to furniture that is no longer in the room.
+        /// </summary>
+        private readonly List<string> _registeredTargets = new List<string>();
 
         private void Awake()
         {
@@ -131,7 +173,7 @@ namespace ConvaiRoom
         private void HandleRebuilt(RoomScanRebuilder source)
         {
             DescribedCount = 0;
-            _describedLabels.Clear();
+            _described.Clear();
 
             if (!describeObjects || source == null || source.Scan == null) return;
 
@@ -148,8 +190,8 @@ namespace ConvaiRoom
                 var entry = chosen[i];
                 if (entry.Proxy == null) continue;
 
-                Describe(entry.Proxy, entry.Data, source.Scan, centre, names[i]);
-                _describedLabels.Add(Label(entry.Data));
+                var description = Describe(entry.Proxy, entry.Data, source.Scan, centre, names[i]);
+                _described.Add(new Described(names[i], Label(entry.Data), description, entry.Proxy));
                 DescribedCount++;
             }
 
@@ -159,10 +201,10 @@ namespace ConvaiRoom
 
             // A scan can be re-loaded with the character already standing there. The world
             // objects re-sync on their own -- the SDK watches its registry -- but the room
-            // summary is ours to re-send, and a stale one would have her describing the room
-            // she was told about rather than the one now drawn around her.
+            // summary and the action targets are ours to re-send, and stale ones would have her
+            // describing the room she was told about, and walking to furniture that has gone.
             if (voice != null && voice.State == RoomCharacterVoice.VoiceState.Ready)
-                PushRoomFacts(voice.Character, announce: false);
+                SendToCharacter(voice.Character, announce: false);
         }
 
         /// <summary>
@@ -248,8 +290,8 @@ namespace ConvaiRoom
             return names;
         }
 
-        private void Describe(GameObject proxy, ScannedObject data, RoomScanFile scan,
-                              Vector3 centre, string name)
+        private string Describe(GameObject proxy, ScannedObject data, RoomScanFile scan,
+                                Vector3 centre, string name)
         {
             if (!proxy.TryGetComponent<ConvaiObjectMetadata>(out var metadata))
                 metadata = proxy.AddComponent<ConvaiObjectMetadata>();
@@ -259,9 +301,13 @@ namespace ConvaiRoom
             // and therefore before there is a name to register. The setters mark the registry
             // dirty, which is what gets the finished entry re-sent to a character who is
             // already connected.
+            var description = BuildDescription(data, scan, centre);
+
             metadata.ObjectName = name;
-            metadata.ObjectDescription = BuildDescription(data, scan, centre);
+            metadata.ObjectDescription = description;
             metadata.IncludeInMetadata = true;
+
+            return description;
         }
 
         /// <summary>
@@ -304,7 +350,58 @@ namespace ConvaiRoom
         // -----------------------------------------------------------------
 
         private void HandleCharacterReady(ConvaiCharacter character) =>
-            PushRoomFacts(character, announce: remarkOnArrival);
+            SendToCharacter(character, announce: remarkOnArrival);
+
+        /// <summary>
+        /// Hands the character everything the scan has to give her, in the one order that works.
+        ///
+        /// Targets before facts, deliberately. Both go out on the same batched sync, and the
+        /// facts include the contents list -- the sentence that names the couch. Registering the
+        /// couch first means the name is already resolvable by the time she is told it exists,
+        /// rather than being asked about a place she cannot yet be sent to.
+        /// </summary>
+        private void SendToCharacter(ConvaiCharacter character, bool announce)
+        {
+            RegisterTargets(character);
+            PushRoomFacts(character, announce);
+        }
+
+        /// <summary>
+        /// Makes the scanned objects places she can be sent to.
+        ///
+        /// The SDK's Move To executor resolves whatever name the backend sends against this
+        /// registry, so a name registered here is the difference between "walk to the couch"
+        /// working and coming back as an unresolved target. The names are the same ones the world
+        /// objects carry, which is what lets her act on the thing she has just been describing.
+        ///
+        /// Nothing here drives the walk. The executor on the prefab does that, over the navmesh
+        /// baked in phase 1 -- this only says where the places are.
+        /// </summary>
+        private void RegisterTargets(ConvaiCharacter character)
+        {
+            if (character == null) return;
+
+            // Withdrawn first, and unconditionally: switching the toggle off mid-session should
+            // take away the targets rather than freeze whichever set was registered last.
+            foreach (var name in _registeredTargets) character.Actions.UnregisterTarget(name);
+            _registeredTargets.Clear();
+
+            if (!makeObjectsWalkable) return;
+
+            foreach (var entry in _described)
+            {
+                // A proxy destroyed under us is a target with nowhere to walk, which fails at the
+                // point she tries rather than here, where it can simply be left out.
+                if (entry.Proxy == null) continue;
+
+                character.Actions.RegisterObject(entry.Name, entry.Description, entry.Proxy);
+                _registeredTargets.Add(entry.Name);
+            }
+
+            if (verboseLogging)
+                Debug.Log($"{Tag} Registered {_registeredTargets.Count} walk targets: " +
+                          $"{string.Join(", ", _registeredTargets)}");
+        }
 
         private void PushRoomFacts(ConvaiCharacter character, bool announce)
         {
@@ -384,9 +481,9 @@ namespace ConvaiRoom
             // The described set when there is one, so the summary and the world objects agree.
             // Falls back to the raw scan only when object descriptions are switched off, where
             // there is nothing to agree with and the file is the best answer available.
-            if (_describedLabels.Count > 0)
+            if (_described.Count > 0)
             {
-                foreach (var label in _describedLabels) Tally(totals, order, label);
+                foreach (var entry in _described) Tally(totals, order, entry.Label);
             }
             else
             {
