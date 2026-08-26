@@ -8178,8 +8178,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomPlannerClient
   backend: 0
-  ollamaUrl: http://192.168.1.10:11434
-  ollamaModel: qwen2.5:7b
+  ollamaUrl: http://10.154.74.203:11434
+  ollamaModel: qwen2.5:3b-instruct
   ollamaTemperature: 0.2
   model: claude-haiku-4-5
   effort: 
