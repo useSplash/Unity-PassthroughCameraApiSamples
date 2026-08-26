@@ -56,7 +56,7 @@ namespace RoomScan
         private class Entry
         {
             public WireBox Box;
-            public TextMesh Label;
+            public ScanLabel Label;
         }
 
         private readonly Dictionary<int, Entry> _entries = new Dictionary<int, Entry>();
@@ -157,14 +157,11 @@ namespace RoomScan
 
             if (entry.Label == null) return;
 
-            // The box transform is never scaled, so this needs no counter-scaling.
-            entry.Label.transform.localPosition =
-                new Vector3(0f, view.Size.y * 0.5f + labelHeightOffset, 0f);
-
-            entry.Label.text = $"{view.Label}\n{view.Confidence:P0} · {view.Observations}x";
-
-            // Keep text opaque; a faint pending box is helpful, faint text is not.
-            entry.Label.color = new Color(tint.r, tint.g, tint.b, 1f);
+            // Re-placed every refresh rather than once: a cluster grows as it is seen from more
+            // angles, and a caption pinned to the height the box had when it first appeared
+            // ends up buried inside it.
+            entry.Label.Place(view.Size.y, labelHeightOffset);
+            entry.Label.Set(view.Label, view.Confidence, view.Observations, tint);
         }
 
         private void Remove(int id)

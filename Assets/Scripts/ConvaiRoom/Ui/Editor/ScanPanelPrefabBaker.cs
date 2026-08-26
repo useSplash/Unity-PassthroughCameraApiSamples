@@ -7,13 +7,17 @@ using UnityEngine.UI;
 namespace ConvaiRoomEditor
 {
     /// <summary>
-    /// Builds the phase 1 scan panel as a prefab.
+    /// Builds the room-flow control panel as a prefab.
     ///
     /// This is the authoring half of what <see cref="ConvaiRoomModePanel"/> used to do at
-    /// runtime in its BuildUi method. The layout numbers below are that method's, carried over
-    /// unchanged so the baked prefab starts out identical to the panel that was being built on
-    /// device -- including the 54-unit button heights, which were widened from 46 because a
-    /// hand ray jitters more than a controller ray.
+    /// runtime in its BuildUi method. The button heights are still the 54 units they were
+    /// widened to from 46, because a hand ray jitters more than a controller ray and that is
+    /// the number that made them reliable to hit.
+    ///
+    /// What changed with the flow is how many buttons there are: the panel used to carry every
+    /// control at once -- scan, save, load, bake, next phase -- and now carries three SLOTS
+    /// that the panel fills in from whichever stage it is in. So the layout below is shorter
+    /// than the flow is, and the flow lives in the panel's LayOutActions rather than here.
     ///
     /// Run it once to get a prefab, then edit the prefab by hand and never come back. It is
     /// kept rather than deleted so there is a way to regenerate a known-good panel if the
@@ -29,10 +33,23 @@ namespace ConvaiRoomEditor
         // numbers below read like ordinary UI pixels rather than millimetres.
         private const float CanvasWidth = 420f;
 
-        // Grown from 660 to fit the plan block and its button row. The readout is the part
-        // that got taller: a plan is up to six steps drawn at once, on top of the seven lines
-        // the room already reports.
-        private const float CanvasHeight = 760f;
+        // Came back down from 760 when the five stacked actions became three slots. The
+        // readout kept its height -- a plan is up to six steps drawn at once -- and the panel
+        // got shorter anyway, which is worth having: a shorter panel sits further inside your
+        // field of view at the metre or so it is placed at.
+        private const float CanvasHeight = 716f;
+
+        /// <summary>Left margin, and the width every full-width row is inset to.</summary>
+        private const float Margin = 16f;
+
+        private const float RowWidth = CanvasWidth - Margin * 2f;
+
+        /// <summary>
+        /// Height of a main action button. Widened from 46 because a hand ray jitters more than
+        /// a controller ray, and tall enough for a second line -- a slot that is greyed out
+        /// carries the reason underneath its label.
+        /// </summary>
+        private const float ActionHeight = 54f;
 
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
@@ -152,12 +169,14 @@ namespace ConvaiRoomEditor
             background.gameObject.AddComponent<ConvaiRoomPanelDragger>();
 
             // 290 wide rather than the full 388, to leave the title bar's right end free.
-            var title = MakeText(canvasRect, "Title", 16f, 12f, 290f, 28f,
-                                 24, TextAnchor.MiddleLeft);
-            title.text = "PHASE 1 - SCAN";
+            // Written by the panel now that the flow has more than one stage to be in; this is
+            // only what it says before the first redraw.
+            var title = MakeText(canvasRect, "Title", Margin, 12f, 290f, 28f,
+                                 22, TextAnchor.MiddleLeft);
+            title.text = "ROOM FLOW";
             title.color = TitleColor;
 
-            // Up in the title bar, deliberately nowhere near SAVE, LOAD and BAKE. Those get
+            // Up in the title bar, deliberately nowhere near the action stack. Those get
             // pressed constantly with a ray that jitters, and the cost of catching this one by
             // accident is a scan you spent ten minutes collecting. It also asks twice.
             var exit = MakeButton(canvasRect, "Exit Button", "EXIT", 314f, 8f, 90f, 40f);
@@ -165,67 +184,62 @@ namespace ConvaiRoomEditor
             var exitImage = exit.targetGraphic as Image;
             if (exitImage != null) exitImage.color = ExitButton;
 
-            // Left empty on purpose -- both of these are overwritten every redraw, and seeding
-            // them with placeholder copy only invites someone to edit the placeholder and
-            // wonder why it never shows up.
-            var counts = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
-                                  34, TextAnchor.MiddleLeft);
+            // Left empty on purpose -- these are overwritten every redraw, and seeding them
+            // with placeholder copy only invites someone to edit the placeholder and wonder
+            // why it never shows up.
+            var counts = MakeText(canvasRect, "Counts", Margin, 52f, RowWidth, 38f,
+                                  30, TextAnchor.MiddleLeft);
 
-            // Seven room lines -- scanning, ready-rule, scan file, anchored, navmesh, a blank,
-            // and the last-action line -- plus up to eight more when a plan is up: a blank, a
-            // header, and the six-step window the panel draws at most.
-            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 200f,
+            // Five room lines at most in the setup stages, and in the character stage two lines
+            // plus a plan: a blank, a header, and the six-step window the panel draws at most.
+            var status = MakeText(canvasRect, "Status", Margin, 94f, RowWidth, 240f,
                                   16, TextAnchor.UpperLeft);
 
-            // Directly under the readout rather than down with the scan actions, because these
-            // three act on the plan drawn immediately above them. A control sitting next to the
-            // thing it changes needs no label explaining which thing that is.
+            // Directly under the readout rather than down with the actions, because these three
+            // act on the plan drawn immediately above them. A control sitting next to the thing
+            // it changes needs no label explaining which thing that is. The panel hides the row
+            // outright except in the character stage -- three permanently greyed buttons under
+            // the readout through the whole of a scan are three controls to wonder about.
             //
             // Three across one row: 124 wide each with 8 between, filling the same 388 the
-            // full-width buttons use. Shorter than the 54-unit actions below because stepping a
-            // plan is reversible and cheap -- a mis-press costs one press back.
+            // full-width buttons use. Shorter than the actions below because stepping a plan is
+            // reversible and cheap -- a mis-press costs one press back.
             var planBack = MakeButton(canvasRect, "Plan Back Button", "< BACK",
-                                      16f, 298f, 124f, 48f);
+                                      Margin, 340f, 124f, 48f);
 
             var planNext = MakeButton(canvasRect, "Plan Next Button", "NEXT >",
-                                      148f, 298f, 124f, 48f);
+                                      148f, 340f, 124f, 48f);
 
             var planClear = MakeButton(canvasRect, "Plan Clear Button", "CLEAR",
-                                       280f, 298f, 124f, 48f);
+                                       280f, 340f, 124f, 48f);
 
-            var controls = MakeText(canvasRect, "Controls", 16f, 354f, CanvasWidth - 32f, 88f,
-                                    16, TextAnchor.UpperLeft);
+            // Five lines: a header, the bindings, what they bypass, the hand-tracking caveat
+            // and the drag hint. Written once at startup, and it never grows.
+            var controls = MakeText(canvasRect, "Controls", Margin, 394f, RowWidth, 88f,
+                                    15, TextAnchor.UpperLeft);
 
-            // Top of the stack, because it is a mode rather than an action -- everything below
-            // it operates on whatever this one has or has not been collecting. The label is
-            // rewritten at runtime to name the action; this is only the starting text.
-            var scanToggle = MakeButton(canvasRect, "Scan Toggle Button", "STOP SCANNING",
-                                        16f, 450f, CanvasWidth - 32f, 54f);
+            // The question line, immediately above the answers to it. That adjacency is doing
+            // the work a dialog box would: the panel has no modal window, so what makes these
+            // read as a question and its two answers rather than as two more actions is that
+            // they are touching.
+            var prompt = MakeText(canvasRect, "Prompt", Margin, 488f, RowWidth, 28f,
+                                  18, TextAnchor.MiddleLeft);
 
-            // Full width now that RECENTER is gone -- the panel is dragged instead.
-            var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN",
-                                  16f, 510f, CanvasWidth - 32f, 54f);
+            // The three action slots. What each says and does comes from the panel's stage --
+            // see ConvaiRoomModePanel.LayOutActions -- so the labels here are only what they
+            // read before the first redraw. Full width, one per row: every one of them can
+            // replace what is in the room, and none is worth fat-fingering with a jittery hand
+            // ray aimed at a half-width target.
+            var slots = new Button[ConvaiRoomModePanel.SlotCount];
+            for (var i = 0; i < slots.Length; i++)
+            {
+                slots[i] = MakeButton(canvasRect, $"Action Button {i}", "",
+                                      Margin, 522f + i * (ActionHeight + 6f),
+                                      RowWidth, ActionHeight);
+            }
 
-            // Full width, one per row, and above the phase button rather than beside the save
-            // pair. Each of these replaces what is in the room -- the loaded boxes, then the
-            // navmesh over them -- which is a different kind of act from the two above, and
-            // worth not fat-fingering with a jittery hand ray aimed at a half-width target.
-            var load = MakeButton(canvasRect, "Load Button", "LOAD SAVED SCAN",
-                                  16f, 570f, CanvasWidth - 32f, 54f);
-
-            var bake = MakeButton(canvasRect, "Bake Button", "BAKE NAVMESH",
-                                  16f, 630f, CanvasWidth - 32f, 54f);
-
-            // Styled like every other action, because it is one. This shipped grey with a
-            // "(not wired)" suffix from when phase 2 did not exist; the panel overwrites the
-            // text at startup but never the colour, so the button that opens the character
-            // phase spent the whole of phase 1 looking like the one control you could not use.
-            var nextPhase = MakeButton(canvasRect, "Next Phase Button", "NEXT PHASE",
-                                       16f, 690f, CanvasWidth - 32f, 54f);
-
-            BindPanelFields(panel, raycaster, counts, status, controls, scanToggle,
-                            save, load, bake, exit, nextPhase,
-                            planBack, planNext, planClear);
+            BindPanelFields(panel, raycaster, title, counts, status, prompt, controls,
+                            slots, exit, planBack, planNext, planClear);
             return root;
         }
 
@@ -235,30 +249,52 @@ namespace ConvaiRoomEditor
         /// any business setting these at runtime.
         /// </summary>
         private static void BindPanelFields(ConvaiRoomModePanel panel, OVRRaycaster raycaster,
-                                            Text counts, Text status, Text controls,
-                                            Button scanToggle,
-                                            Button save, Button load,
-                                            Button bake, Button exit, Button nextPhase,
+                                            Text title, Text counts, Text status,
+                                            Text prompt, Text controls,
+                                            Button[] slots, Button exit,
                                             Button planBack, Button planNext, Button planClear)
         {
             var so = new SerializedObject(panel);
 
-            // No title field on purpose -- the prefab owns that label outright.
             Assign(so, "_raycaster", raycaster);
+            Assign(so, "_titleText", title);
             Assign(so, "_countsText", counts);
             Assign(so, "_statusText", status);
+            Assign(so, "_promptText", prompt);
             Assign(so, "_controlsText", controls);
-            Assign(so, "_scanToggleButton", scanToggle);
-            Assign(so, "_saveButton", save);
-            Assign(so, "_loadButton", load);
-            Assign(so, "_bakeButton", bake);
             Assign(so, "_exitButton", exit);
-            Assign(so, "_nextPhaseButton", nextPhase);
             Assign(so, "_planBackButton", planBack);
             Assign(so, "_planNextButton", planNext);
             Assign(so, "_planClearButton", planClear);
 
+            AssignArray(so, "_actionButtons", slots);
+
             so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>
+        /// Fills a serialized array field, sizing it to what it is handed.
+        ///
+        /// The size is set rather than assumed. A prefab baked before the slot count changed
+        /// keeps the old length, and a panel that finds the right field at the wrong length is
+        /// half-wired in the one way its own validation would otherwise have to guess at.
+        /// </summary>
+        private static void AssignArray(SerializedObject so, string field, Object[] values)
+        {
+            var property = so.FindProperty(field);
+
+            if (property == null || !property.isArray)
+            {
+                Debug.LogError($"[ScanPanelBaker] ConvaiRoomModePanel has no serialized array " +
+                               $"'{field}'. The baker and the panel have drifted apart; the " +
+                               $"prefab will come out half-wired.");
+                return;
+            }
+
+            property.arraySize = values.Length;
+
+            for (var i = 0; i < values.Length; i++)
+                property.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
         }
 
         private static void Assign(SerializedObject so, string field, Object value)

@@ -13,8 +13,16 @@ using UnityEngine.UI;
 namespace ConvaiRoom
 {
     /// <summary>
-    /// The phase 1 control panel: a world-space readout of what the room scan has picked up
-    /// so far, plus a button to write it to disk.
+    /// The control panel, and the flow: a world-space readout of where the room has got to,
+    /// with the two or three things you can do from there underneath it.
+    ///
+    /// It runs as a small state machine -- see <see cref="Stage"/> -- rather than as a board of
+    /// every control at once. The app opens on a choice between scanning a room and loading the
+    /// last one, and each answer leads to the next question: a loaded room asks whether it is
+    /// the right one, a saved scan asks whether to carry on or move on. Nothing was removed to
+    /// get there. Every action the old panel had is still here and still public; they are dealt
+    /// out a few at a time instead of all at once, so the order to do them in stops being
+    /// something you have to already know.
     ///
     /// The class name is historical -- this was the Scan/Talk mode panel before the flow was
     /// split into phases. It keeps the old name so the scene's script GUID reference survives
@@ -39,6 +47,20 @@ namespace ConvaiRoom
     {
         private const string Tag = "[ScanPanel]";
 
+        /// <summary>
+        /// How many main-action buttons the panel has.
+        ///
+        /// Three, because the busiest stage needs three -- bake, bring her in, start over --
+        /// and no stage needs four. Every stage draws from the same three slots in the same
+        /// three places, so a control you used a moment ago is still where you last aimed even
+        /// though it now says something else.
+        ///
+        /// Public because ScanPanelPrefabBaker lays out exactly this many buttons and binds
+        /// them as one array. Two places agreeing on a number by coincidence is how a re-bake
+        /// quietly produces a panel with a slot the flow never fills.
+        /// </summary>
+        public const int SlotCount = 3;
+
         /// <summary>What the scan file on disk is currently worth.</summary>
         private enum DiskState
         {
@@ -48,17 +70,75 @@ namespace ConvaiRoom
         }
 
         /// <summary>
-        /// Which half of the flow the room is in.
+        /// Where in the flow the room is.
         ///
-        /// Not a mode in the old Scan/Talk sense -- these are sequential. Scanning produces the
-        /// floor the character stands on, so the character phase cannot be entered until there
-        /// is one, and going back to Scan takes the character away again rather than leaving it
-        /// standing in a room that is being re-measured underneath it.
+        /// Sequential, not modes: each one produces what the next needs. Scanning produces the
+        /// floor the character stands on, so the character cannot be brought in until there is
+        /// one, and coming back takes her away again rather than leaving her standing in a room
+        /// being re-measured underneath her.
+        ///
+        /// The panel used to open straight into <see cref="Scanning"/> with every button in the
+        /// flow on screen at once, and the order to press them in was something you either knew
+        /// or did not. Each stage now shows only the two or three things that make sense to do
+        /// from it, which is the same set of actions arranged so the flow explains itself.
+        ///
+        /// Two of the five are questions rather than places to work from --
+        /// <see cref="Review"/> and <see cref="Saved"/> put a line of text up and offer the two
+        /// answers to it. They are stages rather than a separate dialog system for two reasons:
+        /// a world-space modal is one more thing to find and aim at, and it would cover the
+        /// readout that says what you are deciding about. Asking in place, in the same three
+        /// button positions, leaves the counts and the scan-file line readable while you choose.
         /// </summary>
-        private enum Phase
+        private enum Stage
         {
-            Scan,
+            /// <summary>Nothing running. Scan a room, or load the one already saved.</summary>
+            Home,
+
+            /// <summary>Collecting. The live boxes grow as objects are seen.</summary>
+            Scanning,
+
+            /// <summary>Still collecting, and just written to disk: carry on, or move on?</summary>
+            Saved,
+
+            /// <summary>A saved scan is on show, being judged: is this the right room?</summary>
+            Review,
+
+            /// <summary>A layout has been accepted. Bake it, then hand it to the character.</summary>
+            Ready,
+
+            /// <summary>She is standing in the room.</summary>
             Character
+        }
+
+        /// <summary>
+        /// What one action slot currently is: what it says, what it does, and whether it can be
+        /// pressed yet.
+        ///
+        /// The handler is a delegate rather than a name looked up later, so a renamed method is
+        /// a compile error here exactly as it is for the buttons bound in
+        /// <see cref="BindButtons"/> -- which is the whole reason none of this goes through the
+        /// Inspector's onClick lists.
+        /// </summary>
+        private readonly struct SlotAction
+        {
+            public readonly string Label;
+            public readonly Action Press;
+
+            /// <summary>Why the slot is greyed out, or empty when it is not.</summary>
+            public readonly string Blocked;
+
+            public SlotAction(string label, Action press, string blocked = "")
+            {
+                Label = label;
+                Press = press;
+                Blocked = blocked;
+            }
+
+            public bool Exists => Press != null;
+            public bool Enabled => string.IsNullOrEmpty(Blocked);
+
+            /// <summary>An empty slot, which is drawn as no button at all.</summary>
+            public static SlotAction None => new SlotAction(null, null);
         }
 
         [Header("Wiring (left empty, this is found in the scene)")]
@@ -108,39 +188,34 @@ namespace ConvaiRoom
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
         [SerializeField] private OVRRaycaster _raycaster;
 
-        // The title is deliberately not referenced here. It is a static label -- the prefab
-        // owns its text and colour outright, and phase 2 can add a field when it actually
-        // needs to change it.
+        [Tooltip("The panel's own name for where you are. It used to be a static 'PHASE 1 - " +
+                 "SCAN' the prefab owned outright; now that the flow has more than two steps " +
+                 "it is the cheapest possible orientation and the panel writes it.")]
+        [SerializeField] private Text _titleText;
 
-        [Tooltip("The big 'N ready / N tracked' line. Overwritten every redraw.")]
+        [Tooltip("The big headline number. Overwritten every redraw, and what it counts " +
+                 "depends on the stage -- see Headline.")]
         [SerializeField] private Text _countsText;
 
         [Tooltip("The multi-line status block. Overwritten every redraw, rich text and all.")]
         [SerializeField] private Text _statusText;
 
+        [Tooltip("The question line above the action buttons. Empty except while the panel is " +
+                 "waiting on an answer.")]
+        [SerializeField] private Text _promptText;
+
         [Tooltip("The controller-bindings block. Written once on startup from the actual " +
                  "bindings, not every frame -- they cannot change while the scene runs.")]
         [SerializeField] private Text _controlsText;
 
-        [SerializeField] private Button _saveButton;
-
-        [Tooltip("Replays whatever room_scan.json is on disk, without touching the live scan.")]
-        [SerializeField] private Button _loadButton;
-
-        [Tooltip("Bakes the NavMesh from whatever the rebuilder is currently holding.")]
-        [SerializeField] private Button _bakeButton;
+        [Tooltip("The stack of main actions, top to bottom. These are SLOTS rather than named " +
+                 "buttons: what each one says and does is decided by the stage, and unused " +
+                 "slots are hidden. See LayOutActions, which is the whole flow in one place.")]
+        [SerializeField] private Button[] _actionButtons = new Button[SlotCount];
 
         [Tooltip("Quits the app. Sits away from the others in the title bar, and takes two " +
                  "presses -- see ExitApplication.")]
         [SerializeField] private Button _exitButton;
-
-        [Tooltip("Starts and stops scanning. Its label is the action it will take, not the " +
-                 "state it is in -- see ToggleScanning.")]
-        [SerializeField] private Button _scanToggleButton;
-
-        [Tooltip("Moves between the scan and the character phase. Its label is the direction " +
-                 "it will take you, not the phase you are in -- see UpdatePhaseLabel.")]
-        [SerializeField] private Button _nextPhaseButton;
 
         [Tooltip("Steps back through the plan. Does the same thing as saying 'go back', and " +
                  "exists because a plan you are working through is the one thing here you " +
@@ -250,18 +325,26 @@ namespace ConvaiRoom
         private float _exitArmedUntil = float.NegativeInfinity;
 
         /// <summary>
-        /// Whether detection is running. Starts true because phase 1 opens straight into a
-        /// scan -- see ApplyScanning in Awake, which pushes this onto the scene rather than
-        /// trusting the components to already agree with it.
+        /// Whether detection is running. Starts false: the app opens on a choice rather than
+        /// mid-scan, and a YOLO pass burning battery behind a menu nobody has answered yet is
+        /// exactly the sort of thing you do not notice until the headset is warm. Pushed onto
+        /// the scene by ApplyScanning in Awake rather than trusting the components to already
+        /// agree with it.
         /// </summary>
-        private bool _scanning = true;
+        private bool _scanning;
 
         /// <summary>
-        /// Which phase the room is in. Starts in Scan, and nothing moves it but
-        /// <see cref="TogglePhase"/> -- the panel is the only thing that decides this, so
-        /// there is exactly one place a wrong phase can come from.
+        /// Where in the flow the room is. Starts at <see cref="Stage.Home"/>, and nothing moves
+        /// it but <see cref="EnterStage"/> -- so there is exactly one place a wrong stage can
+        /// come from.
         /// </summary>
-        private Phase _phase = Phase.Scan;
+        private Stage _stage = Stage.Home;
+
+        /// <summary>
+        /// What the three action slots currently are. Rebuilt by <see cref="LayOutActions"/>
+        /// whenever the stage, the question or anything that greys a slot out changes.
+        /// </summary>
+        private readonly SlotAction[] _slots = new SlotAction[SlotCount];
 
         // Redraw is gated: the text mesh is rebuilt when something displayed actually
         // changed, and otherwise at most once a second so the "2m ago" age still ticks.
@@ -282,6 +365,11 @@ namespace ConvaiRoom
             if (characterSpawner == null) characterSpawner = FindAnyObjectByType<RoomCharacterSpawner>();
             if (characterVoice == null) characterVoice = FindAnyObjectByType<RoomCharacterVoice>();
             if (roomContext == null) roomContext = FindAnyObjectByType<RoomScanContext>();
+
+            // The only reference that had no fallback, which mattered once the prefab started
+            // being re-baked: an instance whose overrides are re-pointed loses the ones the
+            // scene set, and every other field here can find itself again.
+            if (plan == null) plan = FindAnyObjectByType<RoomTaskPlan>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -306,15 +394,23 @@ namespace ConvaiRoom
             BindButtons();
             WriteControls();
 
+            // Awake rather than Start, and that ordering is the point: every Awake runs before
+            // any Start, so this lands before the rebuilder's own Start would have replayed the
+            // scan. The panel owns when a saved room appears now -- the app opens on an empty
+            // room and a question, and a room that has already filled itself with the last
+            // scan's boxes has answered that question on your behalf. ConvaiRoomBootstrap is
+            // held off by its own replayScanOnStart, which ships off for the same reason.
+            if (rebuilder != null) rebuilder.rebuildOnStart = false;
+
             // Pushes the scene into whatever _scanning says rather than assuming it already
             // agrees. The three components have their own enabled flags in the scene, and a
             // panel that says SCANNING while the agent is switched off is worse than useless.
             ApplyScanning(_scanning);
 
             // Pushed onto the prefab rather than trusted, for the same reason ApplyScanning is:
-            // the label is authored text and nothing stops it having been left saying something
-            // else. This is the one that says which phase pressing it moves you to.
-            UpdatePhaseLabel();
+            // every label here is authored text and nothing stops it having been left saying
+            // something else.
+            EnterStage(Stage.Home);
 
             _cursor = ConvaiRoomLaserCursor.Create();
 
@@ -336,18 +432,25 @@ namespace ConvaiRoom
             var missing = new List<string>();
 
             if (_raycaster == null) missing.Add(nameof(_raycaster));
+            if (_titleText == null) missing.Add(nameof(_titleText));
             if (_countsText == null) missing.Add(nameof(_countsText));
             if (_statusText == null) missing.Add(nameof(_statusText));
+            if (_promptText == null) missing.Add(nameof(_promptText));
             if (_controlsText == null) missing.Add(nameof(_controlsText));
-            if (_saveButton == null) missing.Add(nameof(_saveButton));
-            if (_loadButton == null) missing.Add(nameof(_loadButton));
-            if (_bakeButton == null) missing.Add(nameof(_bakeButton));
             if (_exitButton == null) missing.Add(nameof(_exitButton));
-            if (_scanToggleButton == null) missing.Add(nameof(_scanToggleButton));
-            if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
             if (_planBackButton == null) missing.Add(nameof(_planBackButton));
             if (_planNextButton == null) missing.Add(nameof(_planNextButton));
             if (_planClearButton == null) missing.Add(nameof(_planClearButton));
+
+            // Named individually rather than as one "action buttons" complaint. A half-filled
+            // array is the likeliest way this breaks -- a prefab baked before the slot count
+            // changed comes back with the right field and the wrong length -- and knowing which
+            // one is empty is the difference between re-baking and hunting.
+            if (_actionButtons == null || _actionButtons.Length != SlotCount)
+                missing.Add($"{nameof(_actionButtons)} (needs exactly {SlotCount})");
+            else
+                for (var i = 0; i < SlotCount; i++)
+                    if (_actionButtons[i] == null) missing.Add($"{nameof(_actionButtons)}[{i}]");
 
             if (missing.Count == 0) return true;
 
@@ -367,15 +470,43 @@ namespace ConvaiRoom
         /// </summary>
         private void BindButtons()
         {
-            _saveButton.onClick.AddListener(SaveScan);
-            _loadButton.onClick.AddListener(LoadSavedScan);
-            _bakeButton.onClick.AddListener(BakeNavMesh);
             _exitButton.onClick.AddListener(ExitApplication);
-            _scanToggleButton.onClick.AddListener(ScanToggleOrRespawn);
-            _nextPhaseButton.onClick.AddListener(TogglePhase);
             _planBackButton.onClick.AddListener(PlanBack);
             _planNextButton.onClick.AddListener(PlanNext);
             _planClearButton.onClick.AddListener(PlanClear);
+
+            // Bound once, to the slot rather than to the action. What each slot does changes
+            // with the stage, and re-binding onClick on every stage change is how a button ends
+            // up carrying two handlers and firing the one you retired three stages ago.
+            for (var i = 0; i < SlotCount; i++)
+            {
+                var slot = i;
+                _actionButtons[i].onClick.AddListener(() => PressSlot(slot));
+            }
+        }
+
+        /// <summary>
+        /// Runs whatever the stage has put in a slot.
+        ///
+        /// Guarded rather than trusted: a press can arrive in the same frame the stage changed
+        /// underneath it -- Unity delivers the click after the layout has been rewritten -- and
+        /// an empty or greyed slot firing whatever it held a moment ago is the one way this
+        /// arrangement could do something nobody asked for.
+        /// </summary>
+        private void PressSlot(int index)
+        {
+            if (index < 0 || index >= SlotCount) return;
+
+            var slot = _slots[index];
+            if (!slot.Exists || !slot.Enabled) return;
+
+            slot.Press();
+
+            // The press has almost certainly changed what the slots should say -- most of them
+            // move the stage on -- and waiting for the next poll to notice leaves the button
+            // you just hit still offering the thing it has already done.
+            LayOutActions();
+            _dirty = true;
         }
 
         // -----------------------------------------------------------------
@@ -665,6 +796,231 @@ namespace ConvaiRoom
         }
 
         // -----------------------------------------------------------------
+        // Flow
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Moves the panel to a stage and redraws everything that depends on it.
+        ///
+        /// The only way <see cref="_stage"/> ever changes, so there is exactly one place a
+        /// wrong stage can come from and exactly one thing to read to know what happens on the
+        /// way in.
+        /// </summary>
+        private void EnterStage(Stage stage)
+        {
+            _stage = stage;
+
+            LayOutActions();
+            _dirty = true;
+        }
+
+        /// <summary>
+        /// Starts a fresh scan of the room, from any stage that offers it.
+        ///
+        /// Three things are cleared first, and each matters. The replayed boxes go because
+        /// scanning past a previous scan's blue wireframes is unreadable -- you cannot tell what
+        /// you have just picked up from what you loaded a minute ago, which is the exact
+        /// judgement the live boxes exist to support. Any character in the room goes because the
+        /// floor she is standing on is about to be re-measured. And the recorder's own clusters
+        /// go because "scan this room again" means this room, not this room added to the last
+        /// one.
+        /// </summary>
+        public void StartNewScan()
+        {
+            if (rebuilder != null) rebuilder.Clear();
+            if (characterSpawner != null) characterSpawner.Despawn();
+            if (recorder != null) recorder.ClearScan();
+
+            ApplyScanning(true);
+            EnterStage(Stage.Scanning);
+
+            Report("scanning -- walk the room, then SAVE");
+            Debug.Log($"{Tag} Started a new scan; replayed boxes and pending clusters cleared.");
+        }
+
+        /// <summary>
+        /// Replays the saved scan and asks whether it is the room you meant.
+        ///
+        /// The question is the whole point of this route. A scan file is anonymous -- it has a
+        /// size and a date and nothing else that says which room it is of -- so the only honest
+        /// way to answer "is this the right one" is to put the boxes in front of you and let you
+        /// look at where they landed.
+        /// </summary>
+        public void LoadForReview()
+        {
+            LoadSavedScan();
+
+            // Nothing to judge, so nothing to ask. The report from LoadSavedScan already says
+            // why, and staying put leaves the two Home choices where they were.
+            if (rebuilder == null || rebuilder.Scan == null) return;
+
+            EnterStage(Stage.Review);
+        }
+
+        /// <summary>
+        /// Takes the replayed scan as the room to use, and moves on to setting it up.
+        ///
+        /// Nothing is loaded or re-read here -- the boxes are already in the room and the room
+        /// context has already been handed them by the rebuild. This only records that you said
+        /// yes.
+        /// </summary>
+        public void KeepLayout()
+        {
+            EnterStage(Stage.Ready);
+            Report("layout kept -- bake it, then bring her in");
+        }
+
+        /// <summary>
+        /// Ends the scan and moves on with what was just saved.
+        ///
+        /// Scanning is stopped first, and then the file that was written a moment ago is
+        /// replayed. That replay is not busywork: everything downstream reads the REBUILDER
+        /// rather than the recorder -- the navmesh bakes from it, and the room context describes
+        /// its objects to the character -- so a scan that is only in memory is a scan nothing
+        /// else in the app can see. Doing it here is what turns the old load-then-bake sequence
+        /// into one press.
+        /// </summary>
+        public void ProceedFromScan()
+        {
+            ApplyScanning(false);
+            LoadSavedScan();
+
+            // A replay that came back with nothing leaves nothing to bake and nothing to
+            // describe, so moving on would hand you a stage where both actions refuse. Staying
+            // put keeps SAVE SCAN in reach, which is the thing worth trying again.
+            if (rebuilder == null || rebuilder.Scan == null)
+            {
+                EnterStage(Stage.Scanning);
+                return;
+            }
+
+            EnterStage(Stage.Ready);
+            Report("room set -- bake it, then bring her in");
+        }
+
+        /// <summary>Dismisses the after-save question and carries on collecting.</summary>
+        public void KeepScanning()
+        {
+            if (!_scanning) ApplyScanning(true);
+
+            EnterStage(Stage.Scanning);
+            Report("still scanning -- save again whenever you like");
+        }
+
+        /// <summary>
+        /// Decides what the three action slots say and do, from the stage.
+        ///
+        /// This is the flow, all of it, in one readable block -- which is the reason the slots
+        /// are generic. Spread over a dozen named buttons each with its own show/hide rule, the
+        /// question "what can I do from here" had no single answer to read.
+        ///
+        /// A slot that would refuse is greyed rather than hidden, with the reason on it: the
+        /// stage decides WHICH controls exist, and within a stage a control that comes and goes
+        /// is one you aim at where it used to be.
+        /// </summary>
+        private void LayOutActions()
+        {
+            for (var i = 0; i < SlotCount; i++) _slots[i] = SlotAction.None;
+
+            switch (_stage)
+            {
+                case Stage.Home:
+                    _slots[0] = new SlotAction("START NEW SCAN", StartNewScan);
+                    _slots[1] = new SlotAction("LOAD SAVED SCAN", LoadForReview,
+                        _diskState == DiskState.Missing ? "nothing saved" : "");
+                    break;
+
+                case Stage.Scanning:
+                    _slots[0] = new SlotAction(_scanning ? "STOP SCANNING" : "RESUME SCANNING",
+                                               ToggleScanning);
+
+                    // Greyed on the count rather than left to be refused after the press. The
+                    // refusal in SaveScan stays -- it is the one that knows what BuildScanFile
+                    // actually produced -- but being told no is a worse way to learn that
+                    // nothing has settled yet than the button saying so before you reach for it.
+                    _slots[1] = new SlotAction("SAVE SCAN", SaveScan,
+                        _ready == 0 ? "nothing ready yet" : "");
+                    break;
+
+                case Stage.Saved:
+                    _slots[0] = new SlotAction("KEEP SCANNING", KeepScanning);
+                    _slots[1] = new SlotAction("PROCEED", ProceedFromScan);
+                    break;
+
+                case Stage.Review:
+                    _slots[0] = new SlotAction("YES, KEEP IT", KeepLayout);
+                    _slots[1] = new SlotAction("SCAN NEW ROOM", StartNewScan);
+                    break;
+
+                case Stage.Ready:
+                    _slots[0] = new SlotAction(HasNavMesh ? "RE-BAKE NAVMESH" : "BAKE NAVMESH",
+                                               BakeNavMesh);
+
+                    _slots[1] = new SlotAction("BRING IN CHARACTER", EnterCharacterPhase,
+                        HasNavMesh ? "" : "bake first");
+
+                    _slots[2] = new SlotAction("SCAN NEW ROOM", StartNewScan);
+                    break;
+
+                case Stage.Character:
+                    _slots[0] = new SlotAction("RESPAWN", RespawnCharacter);
+                    _slots[1] = new SlotAction("BACK TO ROOM SETUP", ReturnToScanPhase);
+                    break;
+            }
+
+            ApplySlots();
+        }
+
+        /// <summary>Whether anything is baked. False with no builder, which is honest.</summary>
+        private bool HasNavMesh => navMeshBuilder != null && navMeshBuilder.HasNavMesh;
+
+        /// <summary>Pushes <see cref="_slots"/> onto the actual buttons.</summary>
+        private void ApplySlots()
+        {
+            for (var i = 0; i < SlotCount; i++)
+            {
+                var button = _actionButtons[i];
+                if (button == null) continue;
+
+                var slot = _slots[i];
+
+                if (button.gameObject.activeSelf != slot.Exists)
+                    button.gameObject.SetActive(slot.Exists);
+
+                if (!slot.Exists) continue;
+
+                button.interactable = slot.Enabled;
+
+                var label = button.GetComponentInChildren<Text>();
+                if (label == null) continue;
+
+                // The reason rides on the button itself. On a headset the alternative is
+                // pressing a dead control and going looking for why in a readout somewhere
+                // else, and the two words that explain it fit here.
+                label.text = slot.Enabled ? slot.Label : $"{slot.Label}\n({slot.Blocked})";
+            }
+
+            // The plan is a character-stage thing, and three permanently greyed buttons under
+            // the readout through the whole of the scan are three controls to wonder about.
+            var planning = _stage == Stage.Character;
+            SetPlanRowShown(planning);
+
+            if (planning) UpdatePlanButtons();
+        }
+
+        private void SetPlanRowShown(bool shown)
+        {
+            if (_planBackButton.gameObject.activeSelf != shown)
+                _planBackButton.gameObject.SetActive(shown);
+
+            if (_planNextButton.gameObject.activeSelf != shown)
+                _planNextButton.gameObject.SetActive(shown);
+
+            if (_planClearButton.gameObject.activeSelf != shown)
+                _planClearButton.gameObject.SetActive(shown);
+        }
+
+        // -----------------------------------------------------------------
         // Actions
         // -----------------------------------------------------------------
 
@@ -728,6 +1084,11 @@ namespace ConvaiRoom
             // Straight away rather than on the next tick: the indicator flipping a second
             // after the button press reads as a bug.
             RefreshDiskState();
+
+            // Only from the stages that scan. SaveScan is public and a controller binding can
+            // reach it too, and a question about what to do next has no business appearing on
+            // top of a stage that was not asking it.
+            if (_stage == Stage.Scanning || _stage == Stage.Saved) EnterStage(Stage.Saved);
         }
 
         /// <summary>
@@ -775,8 +1136,9 @@ namespace ConvaiRoom
         ///
         /// Takes the replayed scan rather than the live one on purpose: the bake needs the
         /// room's floor polygon and a settled set of objects, and a cluster that is still
-        /// gaining observations is neither. Load a scan first -- and the refusal below says
-        /// so rather than baking an empty floor and reporting success.
+        /// gaining observations is neither. The flow only offers this from a stage that has
+        /// already replayed one, but the refusal below stays: this is public, and baking an
+        /// empty floor while reporting success is the worst thing it could do.
         /// </summary>
         public void BakeNavMesh()
         {
@@ -789,7 +1151,7 @@ namespace ConvaiRoom
 
             if (rebuilder == null || rebuilder.Scan == null)
             {
-                Report("bake needs a loaded scan -- press LOAD SAVED SCAN first");
+                Report("bake needs a room loaded first");
                 Debug.LogWarning($"{Tag} Bake refused: the rebuilder is holding no scan, so " +
                                  $"there is no floor to bake and nothing to walk around.");
                 return;
@@ -848,33 +1210,17 @@ namespace ConvaiRoom
             if (liveVisualizer != null) liveVisualizer.enabled = scanning;
             if (recorder != null) recorder.enabled = scanning;
 
-            UpdateScanToggleLabel();
+            // The scan slot is labelled with the action it will take rather than the state it
+            // is in -- STOP SCANNING while running, RESUME SCANNING while paused. An earlier
+            // panel avoided toggles entirely for fear of which way one would flip; naming the
+            // action instead cannot be read two ways, and the state belongs on the status line.
+            LayOutActions();
             _dirty = true;
 
             Debug.Log($"{Tag} Scanning -> {scanning} " +
                       $"(agent={(detectionAgent != null ? scanning.ToString() : "absent")} " +
                       $"liveBoxes={(liveVisualizer != null ? scanning.ToString() : "absent")} " +
                       $"recorder={(recorder != null ? scanning.ToString() : "absent")}).");
-        }
-
-        /// <summary>
-        /// Labels the button with what pressing it will DO, not what the state currently is.
-        ///
-        /// An earlier panel avoided toggles entirely, using separate Scan and Talk buttons so
-        /// there was no question which way one would flip. That worry was right; the answer
-        /// here is to name the action instead, which cannot be read two ways. The current
-        /// state is on the status line, where state belongs.
-        /// </summary>
-        private void UpdateScanToggleLabel()
-        {
-            if (_scanToggleButton == null) return;
-
-            var label = _scanToggleButton.GetComponentInChildren<Text>();
-            if (label == null) return;
-
-            label.text = _phase == Phase.Character
-                ? "RESPAWN"
-                : _scanning ? "STOP SCANNING" : "START SCANNING";
         }
 
         /// <summary>
@@ -923,17 +1269,16 @@ namespace ConvaiRoom
         }
 
         /// <summary>
-        /// Moves between the scan phase and the character phase.
+        /// Moves between the room setup and the character, whichever way round you are.
         ///
-        /// One button rather than two because the two directions are never both available:
-        /// you are in one phase or the other, and a pair of buttons would spend all its time
-        /// with one of them greyed out. The label says which way it goes -- see
-        /// <see cref="UpdatePhaseLabel"/>.
+        /// Kept for anything driving the panel from outside it -- a controller binding, a later
+        /// phase. The panel's own buttons call the two halves directly now, because each stage
+        /// only ever offers one of the two directions and naming it is clearer than a toggle.
         /// </summary>
         public void TogglePhase()
         {
-            if (_phase == Phase.Scan) EnterCharacterPhase();
-            else ReturnToScanPhase();
+            if (_stage == Stage.Character) ReturnToScanPhase();
+            else EnterCharacterPhase();
         }
 
         /// <summary>
@@ -944,15 +1289,15 @@ namespace ConvaiRoom
         /// exactly the moment they would overlap; stopping first also means a spawn that fails
         /// leaves the room quiet rather than half-transitioned.
         ///
-        /// A refused spawn does not change phase. The panel would otherwise say ROOM PHASE
-        /// with nothing standing in the room, which is the most confusing thing it could do.
+        /// A refused spawn does not change stage. The panel would otherwise say she is in the
+        /// room with nothing standing in it, which is the most confusing thing it could do.
         /// </summary>
         public void EnterCharacterPhase()
         {
             if (characterSpawner == null)
             {
                 Report("no character spawner in the scene");
-                Debug.LogError($"{Tag} Cannot enter the character phase: there is no " +
+                Debug.LogError($"{Tag} Cannot bring the character in: there is no " +
                                $"RoomCharacterSpawner in the scene, so nothing can put a " +
                                $"character in the room.");
                 return;
@@ -964,45 +1309,41 @@ namespace ConvaiRoom
             {
                 // The spawner has already logged the detail; the panel carries the summary so
                 // it is readable without a logcat attached.
-                Report($"character phase refused: {characterSpawner.LastFailure}");
+                Report($"cannot bring her in: {characterSpawner.LastFailure}");
                 return;
             }
 
-            _phase = Phase.Character;
-            UpdatePhaseLabel();
-            UpdateScanToggleLabel();
-            _dirty = true;
+            EnterStage(Stage.Character);
 
             // Not "she is listening" -- the session takes a couple of seconds to open, and on
             // a first run it stops to ask for the microphone. The voice line reports the
-            // actual step; this only says the phase changed.
-            Report("character phase -- connecting her");
-            Debug.Log($"{Tag} Entered the character phase at " +
+            // actual step; this only says the stage changed.
+            Report("she is here -- connecting her");
+            Debug.Log($"{Tag} Brought the character in at " +
                       $"{characterSpawner.LastSpawnPoint:F2}.");
         }
 
         /// <summary>
-        /// Takes the character away and goes back to scanning controls.
+        /// Takes the character away and goes back to the room-setup controls.
         ///
-        /// The character is despawned rather than hidden: the scan phase can re-bake the
-        /// navmesh out from under it, and a NavMeshAgent standing on a surface that has been
-        /// removed is a warning per frame and a character that cannot move once you come back.
+        /// The character is despawned rather than hidden: setup can re-bake the navmesh out
+        /// from under her, and a NavMeshAgent standing on a surface that has been removed is a
+        /// warning per frame and a character that cannot move once you come back.
         ///
-        /// Scanning is deliberately NOT restarted here. Coming back to look at the scan is not
-        /// the same as wanting to collect more of it, and the YOLO pass is expensive enough
-        /// that it should only ever start because someone asked.
+        /// Back to <see cref="Stage.Ready"/> rather than all the way to Home. The layout is
+        /// still loaded and still baked -- that is what she was standing on -- so dropping you
+        /// at the start of the flow would ask you to redo work that is sitting there done.
+        /// Scanning is deliberately NOT restarted for the same reason it never was: coming back
+        /// to look at the room is not the same as wanting to collect more of it.
         /// </summary>
         public void ReturnToScanPhase()
         {
             if (characterSpawner != null) characterSpawner.Despawn();
 
-            _phase = Phase.Scan;
-            UpdatePhaseLabel();
-            UpdateScanToggleLabel();
-            _dirty = true;
+            EnterStage(Stage.Ready);
 
-            Report("back to scan phase -- character removed");
-            Debug.Log($"{Tag} Returned to the scan phase.");
+            Report("she has stepped out -- room kept");
+            Debug.Log($"{Tag} Returned to room setup.");
         }
 
         /// <summary>
@@ -1029,34 +1370,6 @@ namespace ConvaiRoom
 
             Report("character respawned");
             _dirty = true;
-        }
-
-        /// <summary>
-        /// The scan-toggle button does two different jobs, one per phase.
-        ///
-        /// Overloading a button is normally worth avoiding, but START/STOP SCANNING has no
-        /// meaning once the scan has been handed to the navmesh, and the alternative is a
-        /// button sitting inert through the whole second half of the flow. The label is
-        /// rewritten to match, so what it does is never in question -- only what it did a
-        /// phase ago.
-        /// </summary>
-        private void ScanToggleOrRespawn()
-        {
-            if (_phase == Phase.Character) RespawnCharacter();
-            else ToggleScanning();
-        }
-
-        /// <summary>
-        /// Labels the phase button with the direction it will go, matching how the scan toggle
-        /// names its action rather than its state.
-        /// </summary>
-        private void UpdatePhaseLabel()
-        {
-            if (_nextPhaseButton == null) return;
-
-            var label = _nextPhaseButton.GetComponentInChildren<Text>();
-            if (label != null)
-                label.text = _phase == Phase.Character ? "BACK TO SCAN" : "NEXT PHASE";
         }
 
         /// <summary>
@@ -1118,22 +1431,35 @@ namespace ConvaiRoom
             _builder.AppendLine("<color=#ffd54d>CONTROLS</color>");
 
             if (scanController != null)
+            {
                 _builder.AppendLine($"{ButtonLabel(scanController.exportButton)} save   " +
                                     $"{ButtonLabel(scanController.clearButton)} clear   " +
                                     $"{ButtonLabel(scanController.rebuildButton)} load   " +
                                     $"{ButtonLabel(scanController.shellToggleButton)} outline");
+
+                // Said out loud because the panel is a flow now and these are not part of it.
+                // They go straight at the scan -- RoomScanController owns them and knows
+                // nothing about stages -- so loading with a face button puts boxes in the room
+                // without the panel ever asking whether you want to keep them. That is not a
+                // bug, it is the raw pipeline, but a control that leaves the readout describing
+                // a different room is worth a warning.
+                _builder.AppendLine("<color=#9a9aa0>these act on the scan itself, not on this " +
+                                    "flow</color>");
+            }
             else
+            {
                 _builder.AppendLine("<color=#ff8080>no RoomScanController in the scene</color>");
+            }
 
             // Worth its own line. OVRInput promotes hand tracking to the active controller,
             // and under it every face button above resolves to nothing -- so on hands the
             // panel is not a convenience, it is the only way to drive any of this.
-            _builder.AppendLine("<color=#9a9aa0>face buttons need controllers; on hand " +
-                                "tracking use the buttons below</color>");
+            _builder.AppendLine("<color=#9a9aa0>no face buttons on hand tracking -- use the " +
+                                "panel</color>");
 
             // Says so because nothing else does. RECENTER used to be a visible button; drag
             // is invisible until someone tells you it is there.
-            _builder.Append("<color=#9a9aa0>drag this panel by its title or readout to move " +
+            _builder.Append("<color=#9a9aa0>drag the panel by its title or readout to move " +
                             "it</color>");
 
             _controlsText.text = _builder.ToString();
@@ -1264,44 +1590,189 @@ namespace ConvaiRoom
         // Drawing
         // -----------------------------------------------------------------
 
+        /// <summary>
+        /// Redraws every piece of text on the panel.
+        ///
+        /// The readout is written PER STAGE rather than all of it every time. It used to print
+        /// the same seven lines throughout -- the navmesh line while there was nothing to bake
+        /// from, the character line before there was a character -- and a block where five of
+        /// the seven lines say "not yet" is one nobody reads, so the two that matter go unread
+        /// with them. Each stage now prints only what it is actually about.
+        /// </summary>
         private void Redraw()
         {
-            _countsText.text = $"{_ready} ready / {_tracked} tracked";
-            _countsText.color = _ready > 0 ? countsReadyColor : countsIdleColor;
+            // Here rather than at each thing that could change a slot. Half the greying rules
+            // read polled state -- the ready count, whether a file is on disk, whether anything
+            // is baked -- and none of those arrive as an event, so the slots are re-derived
+            // alongside the readout that reports the same numbers. Every write below it is a
+            // no-op when the value has not moved.
+            LayOutActions();
+
+            _titleText.text = Title();
+
+            _countsText.text = Headline();
+            _countsText.color = HeadlineIsGood ? countsReadyColor : countsIdleColor;
+
+            _promptText.text = PromptLine();
 
             _builder.Clear();
 
-            // Read the thresholds off the recorder rather than hardcoding them, so this line
-            // cannot go stale if someone tunes the clustering.
-            _builder.AppendLine(_scanning
-                ? "scanning  : <color=#7fd97f>ON</color> - boxes grow as objects are seen"
-                : "scanning  : <color=#ffc44d>STOPPED</color> - nothing new is being recorded");
+            switch (_stage)
+            {
+                case Stage.Home:
+                    _builder.AppendLine(DiskLine());
+                    _builder.AppendLine(AnchorLine());
+                    _builder.AppendLine();
+                    _builder.AppendLine("<color=#9a9aa0>scan the room to measure it, or load " +
+                                        "the last scan and look at where its boxes land</color>");
+                    break;
 
-            if (recorder != null)
-                _builder.AppendLine($"ready = seen {recorder.minObservations}+ times, " +
-                                    $"under {recorder.maxObjectSize} m");
-            else
-                _builder.AppendLine("<color=#ff8080>no recorder in the scene</color>");
+                case Stage.Scanning:
+                case Stage.Saved:
+                    _builder.AppendLine(_scanning
+                        ? "scanning  : <color=#7fd97f>ON</color> - boxes grow as objects are seen"
+                        : "scanning  : <color=#ffc44d>PAUSED</color> - nothing new is recorded");
 
-            _builder.AppendLine(DiskLine());
-            _builder.AppendLine(AnchorLine());
-            _builder.AppendLine(NavMeshLine());
-            _builder.AppendLine(CharacterLine());
-            AppendPlan();
+                    // Read the thresholds off the recorder rather than hardcoding them, so this
+                    // line cannot go stale if someone tunes the clustering.
+                    if (recorder != null)
+                        _builder.AppendLine($"ready     : seen {recorder.minObservations}+ times, " +
+                                            $"under {recorder.maxObjectSize} m");
+                    else
+                        _builder.AppendLine("<color=#ff8080>no recorder in the scene</color>");
 
-            // Only while it can be acted on. Nothing on this panel moves her -- she is driven
-            // by the conversation -- so the hint says the one thing that is not discoverable
-            // from the readout: that talking to her is the interaction.
-            if (_phase == Phase.Character)
-                _builder.AppendLine("<color=#9a9aa0>just talk to her -- where she goes is the " +
-                                    "conversation's business</color>");
+                    _builder.AppendLine(DiskLine());
+                    _builder.AppendLine(AnchorLine());
+                    break;
+
+                case Stage.Review:
+                    _builder.AppendLine(DiskLine());
+                    _builder.AppendLine(AlignmentLine());
+                    _builder.AppendLine(AnchorLine());
+                    _builder.AppendLine();
+                    _builder.AppendLine("<color=#9a9aa0>look around: the blue boxes should sit " +
+                                        "on the real furniture</color>");
+                    break;
+
+                case Stage.Ready:
+                    _builder.AppendLine(DiskLine());
+                    _builder.AppendLine(NavMeshLine());
+                    _builder.AppendLine(AnchorLine());
+                    break;
+
+                case Stage.Character:
+                    _builder.AppendLine(CharacterLine());
+                    _builder.AppendLine(NavMeshLine());
+                    AppendPlan();
+
+                    // Nothing on this panel moves her -- she is driven by the conversation --
+                    // so the hint says the one thing that is not discoverable from the readout:
+                    // that talking to her is the interaction. Dropped once a plan is up, and
+                    // for two reasons: by then you have plainly worked out that talking to her
+                    // works, and the block is out of lines.
+                    if (plan == null || !plan.HasPlan)
+                        _builder.AppendLine("<color=#9a9aa0>just talk to her -- where she goes " +
+                                            "is the conversation's business</color>");
+                    break;
+            }
 
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
 
+            // The plan row is not touched here. LayOutActions ran at the top of this method and
+            // ApplySlots greys the three buttons as part of it, which keeps every button on the
+            // panel updated from one place.
             _statusText.text = _builder.ToString();
+        }
 
-            UpdatePlanButtons();
+        /// <summary>Where you are, in two or three words.</summary>
+        private string Title()
+        {
+            switch (_stage)
+            {
+                case Stage.Scanning: return "SCANNING THE ROOM";
+                case Stage.Saved: return "SCAN SAVED";
+                case Stage.Review: return "SAVED LAYOUT";
+                case Stage.Ready: return "ROOM READY";
+                case Stage.Character: return "IN THE ROOM";
+                default: return "ROOM FLOW";
+            }
+        }
+
+        /// <summary>
+        /// The one big number, chosen for the stage.
+        ///
+        /// This is the line you read from across the room without focusing on the panel, so
+        /// each stage puts the number it is actually waiting on in it: how much the scan has
+        /// settled while scanning, how much came back while judging a saved one, and how much
+        /// she has been told about once she is here.
+        /// </summary>
+        private string Headline()
+        {
+            switch (_stage)
+            {
+                case Stage.Scanning:
+                case Stage.Saved:
+                    return $"{_ready} ready / {_tracked} tracked";
+
+                case Stage.Review:
+                case Stage.Ready:
+                    var loaded = rebuilder != null ? rebuilder.Rebuilt.Count : 0;
+                    return loaded == 1 ? "1 object in the room" : $"{loaded} objects in the room";
+
+                case Stage.Character:
+                    var known = roomContext != null ? roomContext.DescribedCount : 0;
+                    return known > 0 ? $"she knows {known} objects" : "she is here";
+
+                default:
+                    if (_diskState == DiskState.Missing) return "no saved scan";
+                    return _diskObjects >= 0 ? $"{_diskObjects} objects saved" : "scan saved";
+            }
+        }
+
+        /// <summary>
+        /// Whether the headline is reporting something usable, which is what colours it.
+        ///
+        /// Per stage, because the same zero means different things: no clusters yet while
+        /// scanning is a scan that has not got going, and no saved file at Home is a first run.
+        /// </summary>
+        private bool HeadlineIsGood
+        {
+            get
+            {
+                switch (_stage)
+                {
+                    case Stage.Scanning:
+                    case Stage.Saved: return _ready > 0;
+                    case Stage.Review:
+                    case Stage.Ready: return rebuilder != null && rebuilder.Rebuilt.Count > 0;
+                    case Stage.Character: return true;
+                    default: return _diskState != DiskState.Missing;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The question this stage is asking, if it is asking one. Empty otherwise, which draws
+        /// nothing and leaves a gap above the actions rather than moving them.
+        /// </summary>
+        private string PromptLine()
+        {
+            switch (_stage)
+            {
+                case Stage.Review:
+                    return "<color=#ffd54d>Use this room?</color>";
+
+                case Stage.Saved:
+                    // The count comes from the file that was just written rather than from the
+                    // live counts, which keep moving: what you are deciding about is what
+                    // landed on disk.
+                    var saved = _diskObjects >= 0 ? $"Saved {_diskObjects} objects." : "Saved.";
+                    return $"<color=#ffd54d>{saved} Carry on, or move on?</color>";
+
+                default:
+                    return "";
+            }
         }
 
         /// <summary>
@@ -1405,6 +1876,29 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// Whether the replayed boxes were corrected onto the walls you are standing between,
+        /// or dropped in on the coordinates the file happened to be written with.
+        ///
+        /// On the panel only while a loaded scan is being judged, which is the one moment it
+        /// decides anything: the two look identical right up until you notice the whole room is
+        /// rotated, and knowing the fit was thrown away tells you that a layout that lands wrong
+        /// is worth re-scanning rather than nudging.
+        /// </summary>
+        private string AlignmentLine()
+        {
+            if (rebuilder == null) return "aligned   : <color=#9a9aa0>no rebuilder</color>";
+
+            var alignment = rebuilder.Alignment;
+
+            if (!alignment.Applied)
+                return $"aligned   : <color=#ffc44d>NO</color> - {alignment.Summary}";
+
+            return alignment.Ambiguous
+                ? $"aligned   : <color=#ffc44d>AMBIGUOUS</color> - fits more than one way round"
+                : $"aligned   : <color=#7fd97f>YES</color> - {alignment.Error:F2} m off the walls";
+        }
+
+        /// <summary>
         /// Whether anything is baked, and how much of the room it covers.
         ///
         /// Obstacle count is the useful number rather than triangles: it is the one that says
@@ -1438,13 +1932,11 @@ namespace ConvaiRoom
         ///
         /// Distance is the useful number rather than a position: a coordinate means nothing to
         /// someone wearing the headset, and "4.2 m away" tells you whether to turn around and
-        /// look for her. Silent in the scan phase -- a line about a character that has
-        /// deliberately not been spawned yet is noise on the panel through all of phase 1.
+        /// look for her. Only drawn in the character stage -- a line about a character who has
+        /// deliberately not been spawned yet is noise on the panel through all of the setup.
         /// </summary>
         private string CharacterLine()
         {
-            if (_phase != Phase.Character) return "phase     : <color=#9a9aa0>SCAN</color>";
-
             if (characterSpawner == null || !characterSpawner.IsSpawned)
                 return "character : <color=#ff8080>GONE</color> - press RESPAWN";
 

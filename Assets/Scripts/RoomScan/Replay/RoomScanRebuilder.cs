@@ -235,20 +235,14 @@ namespace RoomScan
 
         private void AttachLabel(GameObject parent, ScannedObject obj, Vector3 size)
         {
-            var label = ScanLabel.Attach(parent.transform, 0.03f);
+            // No counter-scaling here any more, and no character size either. A prefab box is
+            // scaled by the object's size and would stretch the text, but undoing that is the
+            // caption's own business now -- and so is how big it is, so a replayed box and the
+            // live box it came from are captioned identically.
+            var label = ScanLabel.Attach(parent.transform);
 
-            // A prefab box is scaled by the object's size, so the label has to divide
-            // that back out or the text comes out stretched. A WireBox keeps its scale
-            // at 1, in which case this is a no-op.
-            var s = parent.transform.localScale;
-            label.transform.localScale = new Vector3(1f / Mathf.Max(s.x, 1e-3f),
-                                                     1f / Mathf.Max(s.y, 1e-3f),
-                                                     1f / Mathf.Max(s.z, 1e-3f));
-            label.transform.localPosition =
-                new Vector3(0f, (size.y * 0.5f + labelHeightOffset) / Mathf.Max(s.y, 1e-3f), 0f);
-
-            label.text = $"{obj.label}\n{obj.confidence:P0} · {obj.observations}x";
-            label.color = new Color(boxColor.r, boxColor.g, boxColor.b, 1f);
+            label.Place(size.y, labelHeightOffset);
+            label.Set(obj.label, obj.confidence, obj.observations, boxColor);
         }
 
         public void Clear()

@@ -39,6 +39,14 @@ namespace ConvaiRoom
                  "scene run in the Editor with no headset attached.")]
         public float mrukTimeoutSeconds = 5f;
 
+        [Tooltip("Replay whatever scan is on disk as soon as MRUK reports a room.\n\n" +
+                 "Off, and it should stay off. The panel decides when a scan is replayed now: " +
+                 "the app opens on a choice between scanning and loading, and a room that has " +
+                 "already filled itself with the last scan's boxes has answered that question " +
+                 "for you. Turn it on only to look at a saved scan with the panel out of the " +
+                 "way.")]
+        public bool replayScanOnStart;
+
         [Header("Debug")]
         public bool verboseLogging = true;
 
@@ -113,6 +121,18 @@ namespace ConvaiRoom
             if (rebuilder == null)
             {
                 Debug.LogError($"{Tag} No RoomScanRebuilder; nothing to replay.");
+                return;
+            }
+
+            // The wait above is still worth doing with the replay switched off. It is what
+            // decides whether the room came up anchored at all, and that answer is wanted
+            // before anyone presses anything -- the panel reads the same MRUK room and would
+            // otherwise be the first thing to notice it was missing, several button presses in.
+            if (!replayScanOnStart)
+            {
+                if (verboseLogging)
+                    Debug.Log($"{Tag} Room is up; leaving the scan alone. The panel replays it " +
+                              $"when someone asks for it.");
                 return;
             }
 
