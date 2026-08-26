@@ -8185,7 +8185,7 @@ MonoBehaviour:
   effort: 
   maxTokens: 8000
   timeoutSeconds: 40
-  verboseLogging: 0
+  verboseLogging: 1
 --- !u!1 &1382633687
 GameObject:
   m_ObjectHideFlags: 0
