@@ -128,25 +128,58 @@ namespace ConvaiRoom
             cancellationToken.ThrowIfCancellationRequested();
 
             if (!result.Ok)
-            {
-                // Failed, not Unhandled: the action was understood and genuinely attempted. The
-                // answer is written as something she can say, because the player asked a
-                // question out loud and silence is the worst possible reply to it.
-                return ConvaiActionExecutionResult.Failed(
-                    $"Could not plan '{task}': {result.Failure}",
-                    ConvaiActionFailureReason.Custom);
-            }
+                return Excuse(task, result.Failure);
 
             plan.SetPlan(task, result.Summary, result.Steps);
 
             if (!plan.HasPlan)
-            {
-                return ConvaiActionExecutionResult.Failed(
-                    $"The plan for '{task}' came back empty.",
-                    ConvaiActionFailureReason.Custom);
-            }
+                return Excuse(task, "the plan came back empty");
 
             return ConvaiActionExecutionResult.Answered(Speak(), $"Planned '{task}' in {plan.Steps.Count} steps.");
+        }
+
+        /// <summary>
+        /// Says out loud that the plan did not happen, and why.
+        ///
+        /// Answered rather than Failed, and it is worth being clear that this is a deliberate
+        /// reading of the SDK rather than a shrug at it. Only <c>Answer</c> reaches the
+        /// character; <c>Message</c> is documented as text she never hears, and there is no
+        /// factory for a failed result that carries an answer -- the constructor that would
+        /// build one is private. So a Failed result here is a silent one, and silence is the
+        /// worst possible reply to a question somebody asked out loud: she simply stops, and
+        /// the feature reads as broken rather than as unconfigured.
+        ///
+        /// Answered is defensible on its own terms. This action's job is to find something out,
+        /// and it did: it found out that it cannot plan this, and it is telling you. The exact
+        /// reason still goes to the console through <c>message</c>, where it belongs.
+        ///
+        /// The excuses are grouped rather than mapped one for one. A player hears three useful
+        /// distinctions -- it is not set up, it could not be reached, or something else went
+        /// wrong -- and mapping every internal string to its own sentence would be a table that
+        /// silently stops matching the moment one of them is reworded.
+        /// </summary>
+        private ConvaiActionExecutionResult Excuse(string task, string failure)
+        {
+            var reason = failure ?? "";
+
+            string spoken;
+
+            if (reason.IndexOf("key", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                spoken = "I can't work out steps for that yet. My planner isn't set up on this " +
+                         "headset, so I can talk about the room but not plan anything in it.";
+            }
+            else if (reason.IndexOf("reach", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                spoken = "I couldn't reach my planner just then. Ask me again in a moment.";
+            }
+            else
+            {
+                spoken = $"I couldn't work out how to {Lower(task)}, sorry.";
+            }
+
+            return ConvaiActionExecutionResult.Answered(
+                spoken, $"Could not plan '{task}': {reason}");
         }
 
         /// <summary>
