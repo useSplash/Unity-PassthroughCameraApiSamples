@@ -55,6 +55,11 @@ namespace ConvaiRoom
         [Tooltip("The plan being worked through, so the report can say where in it we are.")]
         public RoomTaskPlan plan;
 
+        [Tooltip("Owns the session and the microphone permission. Without it the convai line " +
+                 "cannot say whether she can actually hear you, which is the difference " +
+                 "between a quiet character and a deaf one.")]
+        public RoomCharacterVoice voice;
+
         private readonly StringBuilder _builder = new StringBuilder();
         private readonly List<string> _problems = new List<string>();
         private float _nextReportTime;
@@ -69,6 +74,7 @@ namespace ConvaiRoom
             if (visionPublisher == null) visionPublisher = FindAnyObjectByType<ConvaiVisionPublisher>();
             if (planner == null) planner = FindAnyObjectByType<RoomPlannerClient>();
             if (plan == null) plan = FindAnyObjectByType<RoomTaskPlan>();
+            if (voice == null) voice = FindAnyObjectByType<RoomCharacterVoice>();
         }
 
         private void Start() => Report();
@@ -185,15 +191,37 @@ namespace ConvaiRoom
                  $"anchored={(anchored ? "MRUK_ROOM" : "RAW_WORLD_SPACE")}");
         }
 
+        /// <summary>
+        /// Whether there is a character, whether she is in conversation, and -- the part this
+        /// line was missing -- whether she can hear you.
+        ///
+        /// The microphone belongs on this line because speech is the ONLY way into any of this.
+        /// Every action she can take is invoked by the backend deciding you asked for it, so a
+        /// denied permission does not degrade the room, it disconnects you from all of it: she
+        /// connects, reports ready, stands there, and never responds to a word. Without this
+        /// field that state is indistinguishable from a character who is simply ignoring you,
+        /// and the probe was reporting ok=True through the whole of it.
+        ///
+        /// Reported, not failed on. A character with no microphone is a real state rather than
+        /// a broken one -- she still speaks, and the debug console can still drive her with
+        /// text -- so it is said plainly and left to you to decide whether it is the problem.
+        /// </summary>
         private void ReportConvai()
         {
             var present = character != null;
+
+            // Read from the voice component rather than the character: the permission is asked
+            // for there, and it is the only thing that knows whether the answer was yes.
+            var mic = voice != null ? voice.HasMicrophone : false;
+            var state = voice != null ? voice.State.ToString() : "no RoomCharacterVoice";
 
             // Presence is the pass condition, not conversation: not talking yet is the
             // normal state at startup.
             Line("convai", present,
                  $"character={present} " +
-                 $"inConversation={present && character.IsInConversation}");
+                 $"inConversation={present && character.IsInConversation} " +
+                 $"session={state} " +
+                 $"mic={(mic ? "yes" : "NO - she cannot hear you")}");
         }
 
         /// <summary>
