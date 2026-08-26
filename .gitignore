@@ -19,3 +19,7 @@ PerformanceTestRun*.*
 StreamingAssets*
 buildInfo.txt
 Packages/packages-lock.json
+
+# Planner API key. NEVER commit -- origin is a public fork.
+Assets/Resources/planner_key.txt
+Assets/Resources/planner_key.txt.meta

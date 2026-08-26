@@ -99,6 +99,10 @@ namespace ConvaiRoom
                  "from inside the headset that she knows the room at all.")]
         public RoomScanContext roomContext;
 
+        [Tooltip("The task plan, when one is being worked through. Optional -- without one " +
+                 "the plan block simply never appears and the three plan buttons say so.")]
+        public RoomTaskPlan plan;
+
         [Header("Panel UI (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
@@ -137,6 +141,20 @@ namespace ConvaiRoom
         [Tooltip("Moves between the scan and the character phase. Its label is the direction " +
                  "it will take you, not the phase you are in -- see UpdatePhaseLabel.")]
         [SerializeField] private Button _nextPhaseButton;
+
+        [Tooltip("Steps back through the plan. Does the same thing as saying 'go back', and " +
+                 "exists because a plan you are working through is the one thing here you " +
+                 "touch repeatedly -- saying it every time gets old, and voice fails in a " +
+                 "noisy room.")]
+        [SerializeField] private Button _planBackButton;
+
+        [Tooltip("Steps forward through the plan. The most-pressed control on the panel " +
+                 "whenever a plan is up.")]
+        [SerializeField] private Button _planNextButton;
+
+        [Tooltip("Throws the plan away. She keeps whatever she has been told, but stops being " +
+                 "asked about it and the readout goes back to the room.")]
+        [SerializeField] private Button _planClearButton;
 
         [Header("Panel placement")]
         [Tooltip("Drop the panel in front of the player once MRUK reports its scene. Once " +
@@ -327,6 +345,9 @@ namespace ConvaiRoom
             if (_exitButton == null) missing.Add(nameof(_exitButton));
             if (_scanToggleButton == null) missing.Add(nameof(_scanToggleButton));
             if (_nextPhaseButton == null) missing.Add(nameof(_nextPhaseButton));
+            if (_planBackButton == null) missing.Add(nameof(_planBackButton));
+            if (_planNextButton == null) missing.Add(nameof(_planNextButton));
+            if (_planClearButton == null) missing.Add(nameof(_planClearButton));
 
             if (missing.Count == 0) return true;
 
@@ -352,6 +373,52 @@ namespace ConvaiRoom
             _exitButton.onClick.AddListener(ExitApplication);
             _scanToggleButton.onClick.AddListener(ScanToggleOrRespawn);
             _nextPhaseButton.onClick.AddListener(TogglePhase);
+            _planBackButton.onClick.AddListener(PlanBack);
+            _planNextButton.onClick.AddListener(PlanNext);
+            _planClearButton.onClick.AddListener(PlanClear);
+        }
+
+        // -----------------------------------------------------------------
+        // Plan
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Steps the plan from the panel.
+        ///
+        /// These do the same thing as saying "next", and they exist because voice is a poor
+        /// sole control for the one action you take over and over: a plan is stepped through
+        /// once per step, in a room that may be noisy, often while your hands are busy with the
+        /// thing the step is about. What they deliberately do NOT do is make her say the step
+        /// out loud -- the panel is the quiet route through a plan, and the spoken route is
+        /// still there for anyone who wants it.
+        /// </summary>
+        private void PlanNext() => StepPlan(1, "next step");
+
+        private void PlanBack() => StepPlan(-1, "previous step");
+
+        private void StepPlan(int delta, string label)
+        {
+            if (plan == null || !plan.HasPlan)
+            {
+                _lastAction = "no plan to step through";
+                return;
+            }
+
+            _lastAction = plan.TryMove(delta, out var step)
+                ? $"{label}: {step.Number}/{plan.Steps.Count}"
+                : delta > 0 ? "already at the last step" : "already at the first step";
+        }
+
+        private void PlanClear()
+        {
+            if (plan == null || !plan.HasPlan)
+            {
+                _lastAction = "no plan to clear";
+                return;
+            }
+
+            plan.Clear();
+            _lastAction = "plan cleared";
         }
 
         private void OnEnable()
@@ -1220,6 +1287,7 @@ namespace ConvaiRoom
             _builder.AppendLine(AnchorLine());
             _builder.AppendLine(NavMeshLine());
             _builder.AppendLine(CharacterLine());
+            AppendPlan();
 
             // Only while it can be acted on. Nothing on this panel moves her -- she is driven
             // by the conversation -- so the hint says the one thing that is not discoverable
@@ -1232,6 +1300,81 @@ namespace ConvaiRoom
             _builder.AppendLine($"last: {_lastAction}");
 
             _statusText.text = _builder.ToString();
+
+            UpdatePlanButtons();
+        }
+
+        /// <summary>
+        /// Most steps drawn at once. Past this the list is windowed around the current step --
+        /// a nine-step plan drawn in full pushes the buttons off the panel, and the steps you
+        /// can see are worth more than the ones you have already done.
+        /// </summary>
+        private const int PlanWindow = 6;
+
+        /// <summary>
+        /// Draws the plan: what is being done, and every step numbered with the current one
+        /// marked.
+        ///
+        /// The enumeration is the whole point of drawing it. She reads the plan out once and
+        /// then speaks one step at a time, which is the right way to be walked through a task
+        /// and a hopeless way to keep track of where you are in it -- speech has no scrollback.
+        /// The panel is the part you can look at, so it shows the shape of the whole thing and
+        /// where in it you have got to.
+        /// </summary>
+        private void AppendPlan()
+        {
+            if (plan == null || !plan.HasPlan) return;
+
+            var steps = plan.Steps;
+            var current = plan.CurrentIndex;
+
+            _builder.AppendLine();
+            _builder.AppendLine($"<color=#7fd9d9>plan</color>      : {plan.Task} " +
+                                $"({current + 1}/{steps.Count})");
+
+            // Windowed around the current step, kept inside the list at both ends so the last
+            // steps of a long plan still fill the window rather than trailing off it.
+            var first = 0;
+            var last = steps.Count - 1;
+
+            if (steps.Count > PlanWindow)
+            {
+                first = Mathf.Clamp(current - PlanWindow / 2, 0, steps.Count - PlanWindow);
+                last = first + PlanWindow - 1;
+            }
+
+            if (first > 0) _builder.AppendLine("  <color=#6a6a70>...</color>");
+
+            for (var i = first; i <= last; i++)
+            {
+                var step = steps[i];
+                var here = i == current;
+
+                var where = step.HasPlace ? $" <color=#9a9aa0>[{step.Where}]</color>" : "";
+                var line = $"{step.Number} {step.Text}{where}";
+
+                _builder.AppendLine(here
+                    ? $"<color=#ffc44d>&gt; {line}</color>"
+                    : $"  <color=#9a9aa0>{line}</color>");
+            }
+
+            if (last < steps.Count - 1) _builder.AppendLine("  <color=#6a6a70>...</color>");
+        }
+
+        /// <summary>
+        /// Greys the plan buttons out when they would do nothing.
+        ///
+        /// Interactable rather than hidden, and the ends of the plan grey out too. A button
+        /// that vanishes takes the layout with it, and on a headset a control that moves is
+        /// worse than one that is visibly unavailable -- you aim at where it was.
+        /// </summary>
+        private void UpdatePlanButtons()
+        {
+            var has = plan != null && plan.HasPlan;
+
+            _planBackButton.interactable = has && plan.CurrentIndex > 0;
+            _planNextButton.interactable = has && !plan.AtLastStep;
+            _planClearButton.interactable = has;
         }
 
         private string DiskLine()

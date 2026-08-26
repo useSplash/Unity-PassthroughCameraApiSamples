@@ -10898,6 +10898,8 @@ GameObject:
   - component: {fileID: 9117874682787242883}
   - component: {fileID: 3378359256502040375}
   - component: {fileID: 205058200494541277}
+  - component: {fileID: 2635961944521895042}
+  - component: {fileID: 983940163554673660}
   m_Layer: 0
   m_Name: Room Character Camila
   m_TagString: Untagged
@@ -11185,7 +11187,57 @@ MonoBehaviour:
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
     _disabled: 1
-    _category: 
+    _category:
+  - ActionName: Plan Task
+    Description: The player is asking how to do something, or to be shown how. Use
+      this to work out the steps before answering, and pass what they want to do as
+      the task. Do not use it for questions about the room or about you.
+    Parameters:
+    - Name: task
+      Description: What the player wants to do, in their own words.
+      Type: 2
+      Connector:
+      Choices: []
+    TargetRequirement: 0
+    Executor: {fileID: 2635961944521895042}
+    ExecutorTypeHint:
+    TimeoutSeconds: 45
+    FailurePolicyOverride: 0
+    AnswerDelivery: 3
+    WaitForBotSpeech: 1
+    DelayAfterBotSpeechSeconds: 0
+    _disabled: 0
+    _category:
+  - ActionName: Step Through Plan
+    Description: Move through the steps of the plan already being followed. Use this
+      when asked for the next step, to go back, to repeat the current step, to start
+      over, or to jump to a numbered step.
+    Parameters:
+    - Name: direction
+      Description: Which way to move through the steps.
+      Type: 5
+      Connector:
+      Choices:
+      - next
+      - back
+      - repeat
+      - first
+      - last
+    - Name: step
+      Description: A step number, when the player names one. Omit otherwise.
+      Type: 3
+      Connector:
+      Choices: []
+    TargetRequirement: 0
+    Executor: {fileID: 983940163554673660}
+    ExecutorTypeHint:
+    TimeoutSeconds: 15
+    FailurePolicyOverride: 0
+    AnswerDelivery: 3
+    WaitForBotSpeech: 0
+    DelayAfterBotSpeechSeconds: 0
+    _disabled: 0
+    _category:
   _objects: []
   _characters: []
   _initialAttentionObject: 
@@ -11329,6 +11381,37 @@ MonoBehaviour:
   m_EditorClassIdentifier: Convai.Modules.BodyAnimation::Convai.Modules.BodyAnimation.Executors.ConvaiWalkToActionExecutor
   _characterComponent: {fileID: 0}
   _arriveDistance: 1
+--- !u!114 &2635961944521895042
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8345150164439981185}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 540037b341e9cc04eafa0c27d4d3be05, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomTaskPlanner
+  client: {fileID: 0}
+  plan: {fileID: 0}
+  context: {fileID: 0}
+  maxPlaces: 30
+  verboseLogging: 1
+--- !u!114 &983940163554673660
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8345150164439981185}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c15b29af26119c47a20cab4c5a70a1e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomTaskStepExecutor
+  plan: {fileID: 0}
+  verboseLogging: 1
 --- !u!1 &8483827831080387329
 GameObject:
   m_ObjectHideFlags: 0

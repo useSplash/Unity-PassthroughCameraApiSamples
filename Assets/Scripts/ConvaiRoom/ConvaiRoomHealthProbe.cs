@@ -48,6 +48,13 @@ namespace ConvaiRoom
                  "line simply says the room is running blind, which is a valid setup.")]
         public ConvaiVisionPublisher visionPublisher;
 
+        [Tooltip("Makes the task-planning request. Optional -- without one the planner line " +
+                 "says task planning is not set up, which is a valid setup.")]
+        public RoomPlannerClient planner;
+
+        [Tooltip("The plan being worked through, so the report can say where in it we are.")]
+        public RoomTaskPlan plan;
+
         private readonly StringBuilder _builder = new StringBuilder();
         private readonly List<string> _problems = new List<string>();
         private float _nextReportTime;
@@ -60,6 +67,8 @@ namespace ConvaiRoom
             if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
             if (character == null) character = FindAnyObjectByType<ConvaiCharacter>();
             if (visionPublisher == null) visionPublisher = FindAnyObjectByType<ConvaiVisionPublisher>();
+            if (planner == null) planner = FindAnyObjectByType<RoomPlannerClient>();
+            if (plan == null) plan = FindAnyObjectByType<RoomTaskPlan>();
         }
 
         private void Start() => Report();
@@ -87,6 +96,7 @@ namespace ConvaiRoom
             ReportReplay();
             ReportConvai();
             ReportVision();
+            ReportPlanner();
 
             var verdict = _problems.Count == 0
                 ? "ALL OK"
@@ -227,6 +237,45 @@ namespace ConvaiRoom
                  $"publisher=yes source={(source != null ? source.SourceId : "MISSING")} " +
                  $"capturing={capturing} publishing={visionPublisher.IsPublishing} " +
                  $"frames={frames}{status}");
+        }
+
+        /// <summary>
+        /// Whether task planning can actually happen, and how much of the room it has to work
+        /// with.
+        ///
+        /// Three separate things have to be true and all three fail the same way from inside
+        /// the headset -- you ask "how do I do this?" and she answers as if you had just asked
+        /// a normal question. The planner can be missing from the scene, the API key can be
+        /// absent, or the room can have no groundable places at all, and none of those says
+        /// anything out loud.
+        ///
+        /// The place count is the number worth watching. A planner with a key and zero places
+        /// still works, but every step comes back unlocated, which is the difference between a
+        /// plan about this room and a plan about rooms in general.
+        ///
+        /// A missing planner is not a problem, only a missing capability: the room ran without
+        /// one for its whole life before this, and a probe that shouts about an unconfigured
+        /// optional feature is a probe people stop reading. A planner that is present but has
+        /// no key IS a problem, because that combination is always a mistake.
+        /// </summary>
+        private void ReportPlanner()
+        {
+            if (planner == null)
+            {
+                Line("planner", true, "none - she can talk about the room but not plan tasks");
+                return;
+            }
+
+            var places = RoomTaskVocabulary.Collect().Count;
+            var hasKey = planner.HasKey;
+
+            var state = plan != null && plan.HasPlan
+                ? $"step {plan.CurrentIndex + 1}/{plan.Steps.Count}"
+                : "no plan";
+
+            Line("planner", hasKey,
+                 $"key={(hasKey ? "yes" : "MISSING")} model={planner.model} " +
+                 $"places={places} {state}");
         }
 
         private void Line(string name, bool ok, string detail)

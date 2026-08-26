@@ -28,7 +28,11 @@ namespace ConvaiRoomEditor
         // Authoring units. The canvas is laid out in these and then scaled to metres, so the
         // numbers below read like ordinary UI pixels rather than millimetres.
         private const float CanvasWidth = 420f;
-        private const float CanvasHeight = 660f;
+
+        // Grown from 660 to fit the plan block and its button row. The readout is the part
+        // that got taller: a plan is up to six steps drawn at once, on top of the seven lines
+        // the room already reports.
+        private const float CanvasHeight = 760f;
 
         /// <summary>Physical width of the panel in metres. Height follows the same scale.</summary>
         private const float PanelWidth = 0.42f;
@@ -167,43 +171,61 @@ namespace ConvaiRoomEditor
             var counts = MakeText(canvasRect, "Counts", 16f, 44f, CanvasWidth - 32f, 44f,
                                   34, TextAnchor.MiddleLeft);
 
-            // Seven lines now: scanning, ready-rule, scan file, anchored, navmesh, a blank,
-            // and the last-action line.
-            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 154f,
+            // Seven room lines -- scanning, ready-rule, scan file, anchored, navmesh, a blank,
+            // and the last-action line -- plus up to eight more when a plan is up: a blank, a
+            // header, and the six-step window the panel draws at most.
+            var status = MakeText(canvasRect, "Status", 16f, 92f, CanvasWidth - 32f, 200f,
                                   16, TextAnchor.UpperLeft);
 
-            var controls = MakeText(canvasRect, "Controls", 16f, 252f, CanvasWidth - 32f, 88f,
+            // Directly under the readout rather than down with the scan actions, because these
+            // three act on the plan drawn immediately above them. A control sitting next to the
+            // thing it changes needs no label explaining which thing that is.
+            //
+            // Three across one row: 124 wide each with 8 between, filling the same 388 the
+            // full-width buttons use. Shorter than the 54-unit actions below because stepping a
+            // plan is reversible and cheap -- a mis-press costs one press back.
+            var planBack = MakeButton(canvasRect, "Plan Back Button", "< BACK",
+                                      16f, 298f, 124f, 48f);
+
+            var planNext = MakeButton(canvasRect, "Plan Next Button", "NEXT >",
+                                      148f, 298f, 124f, 48f);
+
+            var planClear = MakeButton(canvasRect, "Plan Clear Button", "CLEAR",
+                                       280f, 298f, 124f, 48f);
+
+            var controls = MakeText(canvasRect, "Controls", 16f, 354f, CanvasWidth - 32f, 88f,
                                     16, TextAnchor.UpperLeft);
 
             // Top of the stack, because it is a mode rather than an action -- everything below
             // it operates on whatever this one has or has not been collecting. The label is
             // rewritten at runtime to name the action; this is only the starting text.
             var scanToggle = MakeButton(canvasRect, "Scan Toggle Button", "STOP SCANNING",
-                                        16f, 348f, CanvasWidth - 32f, 54f);
+                                        16f, 450f, CanvasWidth - 32f, 54f);
 
             // Full width now that RECENTER is gone -- the panel is dragged instead.
             var save = MakeButton(canvasRect, "Save Button", "SAVE SCAN",
-                                  16f, 408f, CanvasWidth - 32f, 54f);
+                                  16f, 510f, CanvasWidth - 32f, 54f);
 
             // Full width, one per row, and above the phase button rather than beside the save
             // pair. Each of these replaces what is in the room -- the loaded boxes, then the
             // navmesh over them -- which is a different kind of act from the two above, and
             // worth not fat-fingering with a jittery hand ray aimed at a half-width target.
             var load = MakeButton(canvasRect, "Load Button", "LOAD SAVED SCAN",
-                                  16f, 468f, CanvasWidth - 32f, 54f);
+                                  16f, 570f, CanvasWidth - 32f, 54f);
 
             var bake = MakeButton(canvasRect, "Bake Button", "BAKE NAVMESH",
-                                  16f, 528f, CanvasWidth - 32f, 54f);
+                                  16f, 630f, CanvasWidth - 32f, 54f);
 
             // Styled like every other action, because it is one. This shipped grey with a
             // "(not wired)" suffix from when phase 2 did not exist; the panel overwrites the
             // text at startup but never the colour, so the button that opens the character
             // phase spent the whole of phase 1 looking like the one control you could not use.
             var nextPhase = MakeButton(canvasRect, "Next Phase Button", "NEXT PHASE",
-                                       16f, 588f, CanvasWidth - 32f, 54f);
+                                       16f, 690f, CanvasWidth - 32f, 54f);
 
             BindPanelFields(panel, raycaster, counts, status, controls, scanToggle,
-                            save, load, bake, exit, nextPhase);
+                            save, load, bake, exit, nextPhase,
+                            planBack, planNext, planClear);
             return root;
         }
 
@@ -216,7 +238,8 @@ namespace ConvaiRoomEditor
                                             Text counts, Text status, Text controls,
                                             Button scanToggle,
                                             Button save, Button load,
-                                            Button bake, Button exit, Button nextPhase)
+                                            Button bake, Button exit, Button nextPhase,
+                                            Button planBack, Button planNext, Button planClear)
         {
             var so = new SerializedObject(panel);
 
@@ -231,6 +254,9 @@ namespace ConvaiRoomEditor
             Assign(so, "_bakeButton", bake);
             Assign(so, "_exitButton", exit);
             Assign(so, "_nextPhaseButton", nextPhase);
+            Assign(so, "_planBackButton", planBack);
+            Assign(so, "_planNextButton", planNext);
+            Assign(so, "_planClearButton", planClear);
 
             so.ApplyModifiedPropertiesWithoutUndo();
         }

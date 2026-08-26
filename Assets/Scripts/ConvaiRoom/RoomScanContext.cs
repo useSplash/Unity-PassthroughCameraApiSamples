@@ -97,6 +97,32 @@ namespace ConvaiRoom
         /// <summary>How many objects she has been told about. Read by the panel.</summary>
         public int DescribedCount { get; private set; }
 
+        /// <summary>
+        /// The room in one line -- size, headroom, what is in it -- or empty when no scan is
+        /// loaded.
+        ///
+        /// The same sentence the character is given as dynamic context, exposed so the task
+        /// planner can be told it too. Deliberately shared rather than rebuilt: two descriptions
+        /// of one room, written by two pieces of code, is how a plan ends up sized for a room
+        /// nobody is standing in.
+        /// </summary>
+        public string RoomSummary
+        {
+            get
+            {
+                var scan = rebuilder != null ? rebuilder.Scan : null;
+                if (scan == null) return "";
+
+                var size = RoomSize(scan);
+                var contents = Contents(scan);
+
+                if (string.IsNullOrEmpty(size)) return contents;
+                if (string.IsNullOrEmpty(contents)) return size;
+
+                return $"{size}, containing {contents}";
+            }
+        }
+
         /// <summary>One scanned object as the character has been told about it.</summary>
         private readonly struct Described
         {
