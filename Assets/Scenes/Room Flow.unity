@@ -8177,8 +8177,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 674f192b332e4bf4a9225c7a76e9f68f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomPlannerClient
-  model: claude-opus-5
-  effort: low
+  model: claude-haiku-4-5
+  effort: 
   maxTokens: 8000
   timeoutSeconds: 25
   verboseLogging: 0

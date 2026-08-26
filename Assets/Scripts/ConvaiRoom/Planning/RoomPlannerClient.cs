@@ -47,15 +47,22 @@ namespace ConvaiRoom
         private const string KeyResourceName = "planner_key";
 
         [Header("Model")]
-        [Tooltip("Which Claude model plans the task. Left at the default unless you have a " +
-                 "reason -- this is the one the planner prompt was written against.")]
-        public string model = "claude-opus-5";
+        [Tooltip("Which Claude model plans the task.\n\n" +
+                 "Haiku 4.5 while the feature is being tried out -- around a fifth the price " +
+                 "of Opus 5 per plan, and this is not a hard reasoning problem. If plans come " +
+                 "back thin, or steps get grounded to nearly-right places, move up to " +
+                 "claude-sonnet-5 or claude-opus-5 and set Effort below.")]
+        public string model = "claude-haiku-4-5";
 
-        [Tooltip("How hard the model works before answering.\n\n" +
-                 "Low on purpose. Enumerating five grounded steps from a fixed list of places " +
-                 "is not a hard problem, and every extra second here is a second the character " +
-                 "stands silent in front of you. Raise it if plans come back thin.")]
-        public string effort = "low";
+        [Tooltip("How hard the model works before answering. LEAVE THIS EMPTY ON HAIKU 4.5.\n\n" +
+                 "Not every model takes this. The 5-class models (opus, sonnet) accept low, " +
+                 "medium, high, xhigh and max; Haiku 4.5 rejects the field outright and the " +
+                 "whole request fails with a 400. Empty means it is not sent at all, which is " +
+                 "the only setting that works everywhere.\n\n" +
+                 "On a model that does take it, low is the right starting point: enumerating " +
+                 "five grounded steps from a fixed list is not hard, and every extra second is " +
+                 "one she stands silent in front of you.")]
+        public string effort = "";
 
         [Tooltip("Ceiling on the reply, thinking included. A plan is short; this is sized so a " +
                  "long think cannot truncate the JSON halfway through a step.")]
@@ -188,8 +195,17 @@ namespace ConvaiRoom
             json.Append("\"model\":").Append(Quote(model)).Append(',');
             json.Append("\"max_tokens\":").Append(Mathf.Max(1024, maxTokens)).Append(',');
 
+            // Effort is omitted entirely when blank rather than sent empty, and that is not
+            // tidiness -- it is the difference between a working request and a 400. The field
+            // is only understood by the 5-class models; Haiku 4.5 rejects its presence, and it
+            // rejects `"effort": ""` just as hard as a real value. The format half is always
+            // sent: structured outputs are what make the grounding a guarantee rather than a
+            // hope, and every model this would sensibly run on supports them.
             json.Append("\"output_config\":{");
-            json.Append("\"effort\":").Append(Quote(effort)).Append(',');
+
+            if (!string.IsNullOrWhiteSpace(effort))
+                json.Append("\"effort\":").Append(Quote(effort.Trim())).Append(',');
+
             json.Append("\"format\":{\"type\":\"json_schema\",\"schema\":");
             AppendSchema(json, places);
             json.Append("}},");
