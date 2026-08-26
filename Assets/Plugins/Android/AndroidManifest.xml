@@ -28,5 +28,13 @@
        inside the Convai package. Without this line the runtime permission request is refused
        instantly with no dialog, and the character connects but never hears anything. -->
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <!-- The task planner posts to an HTTPS API, and Internet Access is on Auto, which adds this
+       permission only if Unity spots networking while scanning MANAGED assemblies. Convai has
+       always reached its servers from native code underneath that scan, so the app has been
+       relying on something it never actually declared. Declared here because the failure is
+       both silent and misleading: without it every planning request dies as a connection
+       error, which reads as a bad key or a dead endpoint rather than a missing permission.
+       Harmless if Unity was going to add it anyway, since the merge collapses the duplicate. -->
+  <uses-permission android:name="android.permission.INTERNET" />
   <horizonos:uses-horizonos-sdk horizonos:minSdkVersion="68" horizonos:targetSdkVersion="74" />
 </manifest>
