@@ -245,18 +245,26 @@ namespace ConvaiRoom
         ///
         /// Three separate things have to be true and all three fail the same way from inside
         /// the headset -- you ask "how do I do this?" and she answers as if you had just asked
-        /// a normal question. The planner can be missing from the scene, the API key can be
-        /// absent, or the room can have no groundable places at all, and none of those says
-        /// anything out loud.
+        /// a normal question. The planner can be missing from the scene, it can be unconfigured
+        /// for whichever backend it is set to, or the room can have no groundable places at
+        /// all, and none of those says anything out loud.
         ///
-        /// The place count is the number worth watching. A planner with a key and zero places
+        /// The place count is the number worth watching. A configured planner with zero places
         /// still works, but every step comes back unlocated, which is the difference between a
         /// plan about this room and a plan about rooms in general.
         ///
+        /// What "configured" means depends on the backend, which is why this asks the planner
+        /// rather than checking for a key: Anthropic needs one and Ollama has none, so a line
+        /// hardcoded to report a key would call a perfectly healthy local setup broken.
+        ///
+        /// Reachability is deliberately not tested. The probe runs on a timer and pinging a LAN
+        /// address every few seconds to colour a status line is a bad trade, so a sleeping PC
+        /// still reads as ok here and announces itself the moment a plan is asked for.
+        ///
         /// A missing planner is not a problem, only a missing capability: the room ran without
         /// one for its whole life before this, and a probe that shouts about an unconfigured
-        /// optional feature is a probe people stop reading. A planner that is present but has
-        /// no key IS a problem, because that combination is always a mistake.
+        /// optional feature is a probe people stop reading. A planner that is present but not
+        /// configured IS a problem, because that combination is always a mistake.
         /// </summary>
         private void ReportPlanner()
         {
@@ -267,14 +275,22 @@ namespace ConvaiRoom
             }
 
             var places = RoomTaskVocabulary.Collect().Count;
-            var hasKey = planner.HasKey;
+            var ready = planner.IsConfigured;
 
             var state = plan != null && plan.HasPlan
                 ? $"step {plan.CurrentIndex + 1}/{plan.Steps.Count}"
                 : "no plan";
 
-            Line("planner", hasKey,
-                 $"key={(hasKey ? "yes" : "MISSING")} model={planner.model} " +
+            // Named per backend, because the thing you would go and fix is different. An
+            // Anthropic planner is missing a key; an Ollama one is missing an address or a
+            // model, and saying "key=MISSING" at somebody running locally sends them hunting
+            // for a file that was never meant to exist.
+            var config = planner.backend == RoomPlannerClient.PlannerBackend.Anthropic
+                ? $"key={(ready ? "yes" : "MISSING")}"
+                : $"at={planner.Endpoint}";
+
+            Line("planner", ready,
+                 $"via={planner.BackendName} {config} model={planner.ActiveModel} " +
                  $"places={places} {state}");
         }
 

@@ -8177,10 +8177,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 674f192b332e4bf4a9225c7a76e9f68f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomPlannerClient
+  backend: 0
+  ollamaUrl: http://192.168.1.10:11434
+  ollamaModel: qwen2.5:7b
+  ollamaTemperature: 0.2
   model: claude-haiku-4-5
   effort: 
   maxTokens: 8000
-  timeoutSeconds: 25
+  timeoutSeconds: 40
   verboseLogging: 0
 --- !u!1 &1382633687
 GameObject:
