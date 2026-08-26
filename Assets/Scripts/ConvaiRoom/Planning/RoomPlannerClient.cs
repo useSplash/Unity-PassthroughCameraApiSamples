@@ -113,8 +113,12 @@ namespace ConvaiRoom
                 new PlanResult(false, "", Array.Empty<PlannedStep>(), failure);
         }
 
+        /// <summary>How long to wait before looking for a missing key again. See ResolveKey.</summary>
+        private const float KeyRetryIntervalSeconds = 5f;
+
         private string _cachedKey;
-        private bool _keyLookedFor;
+        private float _nextKeyLookup;
+        private bool _warnedAboutKey;
 
         /// <summary>
         /// Whether a key was found. Read by the panel and the health probe, because a missing
@@ -511,12 +515,23 @@ namespace ConvaiRoom
         /// Neither belongs in git. `origin` here is a public fork, and an API key committed to
         /// it is a key that has to be revoked -- Assets/Resources/planner_key.txt is in
         /// .gitignore for exactly the reason ConvaiSettings.asset is kept out.
+        ///
+        /// A key that is FOUND is cached for good; a key that is missing is looked for again on
+        /// a slow timer rather than being remembered as absent. Caching the miss is the obvious
+        /// thing to write and it produces a genuinely baffling half hour: you push the key file
+        /// to the headset, the app is already running, and the panel goes on insisting there is
+        /// no key until you work out that the answer was decided seconds after launch. The
+        /// retry costs one File.Exists every few seconds, and only while there is no key.
         /// </summary>
         private string ResolveKey()
         {
-            if (_keyLookedFor) return _cachedKey;
+            if (!string.IsNullOrEmpty(_cachedKey)) return _cachedKey;
 
-            _keyLookedFor = true;
+            // Unscaled, because this is wall-clock housekeeping and has no business stopping
+            // when something pauses the game.
+            if (_nextKeyLookup > 0f && Time.unscaledTime < _nextKeyLookup) return null;
+
+            _nextKeyLookup = Time.unscaledTime + KeyRetryIntervalSeconds;
 
             var path = Path.Combine(Application.persistentDataPath, KeyFileName);
 
@@ -546,21 +561,30 @@ namespace ConvaiRoom
                 return _cachedKey;
             }
 
-            Debug.LogWarning(
-                $"{Tag} No planner key. Put one in Assets/Resources/{KeyResourceName}.txt " +
-                $"(gitignored) before building, or push one to " +
-                $"{Application.persistentDataPath}/{KeyFileName} on the headset. Until then " +
-                $"she can still talk about the room but cannot plan anything.");
+            // Once, not every retry. This is polled by the health probe, and a warning on a
+            // five-second timer would bury the log it is meant to be read from.
+            if (!_warnedAboutKey)
+            {
+                _warnedAboutKey = true;
+
+                Debug.LogWarning(
+                    $"{Tag} No planner key. Put one in Assets/Resources/{KeyResourceName}.txt " +
+                    $"(gitignored) before building, or push one to " +
+                    $"{Application.persistentDataPath}/{KeyFileName} on the headset -- that one " +
+                    $"is picked up within a few seconds, with no restart. Until then she can " +
+                    $"still talk about the room but cannot plan anything.");
+            }
 
             _cachedKey = null;
             return null;
         }
 
-        /// <summary>Forgets the cached key, so a newly pushed file is picked up without a restart.</summary>
+        /// <summary>Drops the cached key, so the next lookup starts over. For a key rotated mid-session.</summary>
         public void ForgetKey()
         {
-            _keyLookedFor = false;
             _cachedKey = null;
+            _nextKeyLookup = 0f;
+            _warnedAboutKey = false;
         }
 
         // -----------------------------------------------------------------
