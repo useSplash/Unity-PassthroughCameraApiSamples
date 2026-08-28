@@ -13,8 +13,8 @@ using UnityEngine.UI;
 namespace ConvaiRoom
 {
     /// <summary>
-    /// The control panel, and the flow: a world-space readout of where the room has got to,
-    /// with the two or three things you can do from there underneath it.
+    /// The control panel, and the flow: where the room has got to, and the two or three things
+    /// you can do from there.
     ///
     /// It runs as a small state machine -- see <see cref="Stage"/> -- rather than as a board of
     /// every control at once. The app opens on a choice between scanning a room and loading the
@@ -23,6 +23,16 @@ namespace ConvaiRoom
     /// get there. Every action the old panel had is still here and still public; they are dealt
     /// out a few at a time instead of all at once, so the order to do them in stops being
     /// something you have to already know.
+    ///
+    /// There are TWO panels, and the split is the same one. The main panel carries the flow and
+    /// nothing else -- where you are, one number, the question, the buttons -- because a flow
+    /// you have to read is a flow that has not been designed. Everything you would go LOOKING
+    /// for is on the details panel beside it, switched on with INFO: why something refused,
+    /// whether the walls lined up, what the controller buttons do, and the plan when there is
+    /// one. Both hang off this transform, so dragging either moves the pair.
+    ///
+    /// Colours and corner radii come from a <see cref="ScanPanelTheme"/> asset and are applied
+    /// at runtime, so a restyle is an asset edit rather than a re-bake.
     ///
     /// The class name is historical -- this was the Scan/Talk mode panel before the flow was
     /// split into phases. It keeps the old name so the scene's script GUID reference survives
@@ -183,7 +193,14 @@ namespace ConvaiRoom
                  "the plan block simply never appears and the three plan buttons say so.")]
         public RoomTaskPlan plan;
 
-        [Header("Panel UI (all from the prefab, all required)")]
+        [Header("Look")]
+        [Tooltip("Every colour and corner radius the panel draws itself with. Applied at " +
+                 "runtime, so changing it needs no re-bake -- but the Scene view keeps showing " +
+                 "whatever the prefab was baked with until you press Play.\n\nLeave it empty " +
+                 "and the panel uses the theme's own defaults, which is the shipped look.")]
+        [SerializeField] private ScanPanelTheme _theme;
+
+        [Header("Main panel (all from the prefab, all required)")]
         [Tooltip("The world-space canvas. This is also the object that gets hidden until MRUK " +
                  "reports its room, so it must be the panel's canvas rather than a child of it.")]
         [SerializeField] private OVRRaycaster _raycaster;
@@ -197,25 +214,37 @@ namespace ConvaiRoom
                  "depends on the stage -- see Headline.")]
         [SerializeField] private Text _countsText;
 
-        [Tooltip("The multi-line status block. Overwritten every redraw, rich text and all.")]
-        [SerializeField] private Text _statusText;
-
         [Tooltip("The question line above the action buttons. Empty except while the panel is " +
                  "waiting on an answer.")]
         [SerializeField] private Text _promptText;
-
-        [Tooltip("The controller-bindings block. Written once on startup from the actual " +
-                 "bindings, not every frame -- they cannot change while the scene runs.")]
-        [SerializeField] private Text _controlsText;
 
         [Tooltip("The stack of main actions, top to bottom. These are SLOTS rather than named " +
                  "buttons: what each one says and does is decided by the stage, and unused " +
                  "slots are hidden. See LayOutActions, which is the whole flow in one place.")]
         [SerializeField] private Button[] _actionButtons = new Button[SlotCount];
 
+        [Tooltip("Shows and hides the details panel. Its label is the action it will take.")]
+        [SerializeField] private Button _infoButton;
+
         [Tooltip("Quits the app. Sits away from the others in the title bar, and takes two " +
                  "presses -- see ExitApplication.")]
         [SerializeField] private Button _exitButton;
+
+        [Header("Details panel (all from the prefab, all required)")]
+        [Tooltip("The whole second panel, switched on and off by the INFO button. Everything " +
+                 "below lives on it.")]
+        [SerializeField] private GameObject _detailsRoot;
+
+        [Tooltip("The details panel's own raycaster. It has buttons on it, so it needs one of " +
+                 "its own -- a canvas without one is a canvas the laser goes straight through.")]
+        [SerializeField] private OVRRaycaster _detailsRaycaster;
+
+        [Tooltip("The multi-line status block. Overwritten every redraw, rich text and all.")]
+        [SerializeField] private Text _statusText;
+
+        [Tooltip("The controller-bindings block. Written once on startup from the actual " +
+                 "bindings, not every frame -- they cannot change while the scene runs.")]
+        [SerializeField] private Text _controlsText;
 
         [Tooltip("Steps back through the plan. Does the same thing as saying 'go back', and " +
                  "exists because a plan you are working through is the one thing here you " +
@@ -261,14 +290,12 @@ namespace ConvaiRoom
                  "quit; let it lapse and the next press starts over.")]
         public float exitConfirmSeconds = 5f;
 
-        [Header("Counts colour")]
-        [Tooltip("The counts line is the one piece of styling the panel still drives, because " +
-                 "the colour carries meaning: this one when something is ready to export...")]
-        [SerializeField] private Color countsReadyColor = new Color(0.5f, 0.9f, 1f);
-
-        [Tooltip("...and this one when nothing is. Setting the colour on the Text in the " +
-                 "prefab will not stick -- change these instead.")]
-        [SerializeField] private Color countsIdleColor = new Color(0.75f, 0.75f, 0.78f);
+        /// <summary>
+        /// The theme actually in use: the assigned asset, or a default instance when there is
+        /// none. Resolved once in Awake so nothing downstream has to null-check it, and so a
+        /// panel with no theme assigned still looks like the panel rather than like a bug.
+        /// </summary>
+        private ScanPanelTheme _skin;
 
         private ConvaiRoomLaserCursor _cursor;
 
@@ -341,8 +368,21 @@ namespace ConvaiRoom
         private Stage _stage = Stage.Home;
 
         /// <summary>
+        /// Whether the details panel is up. Starts hidden: it is reference material, and the
+        /// whole point of moving the readout onto it is that the flow does not need reading.
+        /// </summary>
+        private bool _detailsShown;
+
+        /// <summary>
+        /// Whether a plan was up on the last redraw, so the arrival of one can be spotted. The
+        /// plan is drawn on the details panel, and a plan nobody can see is worse than no plan
+        /// -- see the auto-open in <see cref="Redraw"/>.
+        /// </summary>
+        private bool _hadPlan;
+
+        /// <summary>
         /// What the three action slots currently are. Rebuilt by <see cref="LayOutActions"/>
-        /// whenever the stage, the question or anything that greys a slot out changes.
+        /// whenever the stage or anything that greys a slot out changes.
         /// </summary>
         private readonly SlotAction[] _slots = new SlotAction[SlotCount];
 
@@ -391,8 +431,19 @@ namespace ConvaiRoom
             // different objects -- one field instead of two, and no way to wire them apart.
             _canvasGo = _raycaster.gameObject;
 
+            // Before anything is written into the panel: the theme decides the palette the
+            // readout quotes, so a redraw that ran first would come out in the wrong colours
+            // and stay that way until something else marked it dirty.
+            _skin = _theme != null ? _theme : ScriptableObject.CreateInstance<ScanPanelTheme>();
+            ApplyTheme();
+
             BindButtons();
             WriteControls();
+
+            // Hidden from the start, and switched rather than assumed: the prefab is authored
+            // with it visible so it can be laid out, and shipping that way would put the whole
+            // readout back in front of you at launch.
+            SetDetailsShown(false);
 
             // Awake rather than Start, and that ordering is the point: every Awake runs before
             // any Start, so this lands before the rebuilder's own Start would have replayed the
@@ -434,10 +485,13 @@ namespace ConvaiRoom
             if (_raycaster == null) missing.Add(nameof(_raycaster));
             if (_titleText == null) missing.Add(nameof(_titleText));
             if (_countsText == null) missing.Add(nameof(_countsText));
-            if (_statusText == null) missing.Add(nameof(_statusText));
             if (_promptText == null) missing.Add(nameof(_promptText));
-            if (_controlsText == null) missing.Add(nameof(_controlsText));
+            if (_infoButton == null) missing.Add(nameof(_infoButton));
             if (_exitButton == null) missing.Add(nameof(_exitButton));
+            if (_detailsRoot == null) missing.Add(nameof(_detailsRoot));
+            if (_detailsRaycaster == null) missing.Add(nameof(_detailsRaycaster));
+            if (_statusText == null) missing.Add(nameof(_statusText));
+            if (_controlsText == null) missing.Add(nameof(_controlsText));
             if (_planBackButton == null) missing.Add(nameof(_planBackButton));
             if (_planNextButton == null) missing.Add(nameof(_planNextButton));
             if (_planClearButton == null) missing.Add(nameof(_planClearButton));
@@ -471,6 +525,7 @@ namespace ConvaiRoom
         private void BindButtons()
         {
             _exitButton.onClick.AddListener(ExitApplication);
+            _infoButton.onClick.AddListener(ToggleDetails);
             _planBackButton.onClick.AddListener(PlanBack);
             _planNextButton.onClick.AddListener(PlanNext);
             _planClearButton.onClick.AddListener(PlanClear);
@@ -621,6 +676,13 @@ namespace ConvaiRoom
             // module to a raycaster that has not started yet is how the first click of the
             // session ends up going nowhere.
             EnsurePointer(_raycaster);
+
+            // The details panel's own raycaster only needs the cursor handed to it. Which
+            // raycaster the module is pointed AT is settled by OVRRaycaster on pointer enter,
+            // so the two canvases hand off between themselves once the first click has landed
+            // -- but the cursor is not something either of them finds on its own, and without
+            // it the plan buttons over there take presses that go nowhere visible.
+            _detailsRaycaster.pointer = _cursor.gameObject;
 
             Recenter();
 
@@ -792,6 +854,108 @@ namespace ConvaiRoom
             _tracked = 0;
 
             RefreshDiskState();
+            _dirty = true;
+        }
+
+        // -----------------------------------------------------------------
+        // Look
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Paints the whole panel from <see cref="_skin"/>.
+        ///
+        /// Driven off the <see cref="ScanPanelSkin"/> tags the baker leaves on each graphic
+        /// rather than off a reference per piece. That is what makes the theme reach parts the
+        /// panel has no field for -- both backgrounds, six button faces, every label -- and what
+        /// lets something added to the prefab later be themed by dropping a tag on it.
+        ///
+        /// Run once, in Awake. The colours do not change while the app runs; a theme edited in
+        /// the Inspector during Play shows up on the next entry to Play, which is the same deal
+        /// as every other serialized default here.
+        /// </summary>
+        private void ApplyTheme()
+        {
+            var panelSprite = RoundedRectSprite.Get(_skin.panelCornerRadius);
+            var buttonSprite = RoundedRectSprite.Get(_skin.buttonCornerRadius);
+
+            // Includes inactive, and it has to: the details panel is switched off a few lines
+            // later in Awake, and on some paths was never on to begin with. An unthemed panel
+            // that only appears once you press INFO is the worst possible time to notice.
+            foreach (var skin in GetComponentsInChildren<ScanPanelSkin>(true))
+            {
+                switch (skin.role)
+                {
+                    case ScanPanelSkin.Role.PanelBackground:
+                        Paint(skin, _skin.panelBackground, panelSprite);
+                        break;
+
+                    case ScanPanelSkin.Role.ButtonFace:
+                        Paint(skin, _skin.buttonFace, buttonSprite);
+                        break;
+
+                    case ScanPanelSkin.Role.ExitFace:
+                        Paint(skin, _skin.exitFace, buttonSprite);
+                        break;
+
+                    case ScanPanelSkin.Role.Title:
+                        Write(skin, _skin.title);
+                        break;
+
+                    case ScanPanelSkin.Role.BodyText:
+                        Write(skin, _skin.bodyText);
+                        break;
+
+                    case ScanPanelSkin.Role.ButtonLabel:
+                        Write(skin, _skin.buttonLabel);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Colours an image and gives it its rounded corners.
+        ///
+        /// Sliced only when there is a sprite. An Image set to Sliced with none logs a warning
+        /// every frame it is drawn, and a zero radius is a legitimate answer -- it means someone
+        /// wants the square panel back.
+        /// </summary>
+        private static void Paint(ScanPanelSkin skin, Color color, Sprite sprite)
+        {
+            var image = skin.GetComponent<Image>();
+            if (image == null) return;
+
+            image.color = color;
+            image.sprite = sprite;
+            image.type = sprite != null ? Image.Type.Sliced : Image.Type.Simple;
+        }
+
+        private static void Write(ScanPanelSkin skin, Color color)
+        {
+            var text = skin.GetComponent<Text>();
+            if (text != null) text.color = color;
+        }
+
+        /// <summary>
+        /// Shows and hides the details panel.
+        ///
+        /// The readout lives over there now, which is the point: the main panel is a flow and a
+        /// flow you have to read is a flow that has not been designed. What is on the details
+        /// panel is the stuff you go looking for -- why something refused, whether the walls
+        /// lined up, what the controller buttons do -- and going looking for it is a press.
+        /// </summary>
+        public void ToggleDetails() => SetDetailsShown(!_detailsShown);
+
+        public void SetDetailsShown(bool shown)
+        {
+            _detailsShown = shown;
+            _detailsRoot.SetActive(shown);
+
+            var label = _infoButton.GetComponentInChildren<Text>();
+            if (label != null) label.text = shown ? "HIDE INFO" : "INFO";
+
+            // The readout is not built while it is hidden -- see Redraw -- so whatever is on it
+            // is as old as the moment it was switched off. Forcing a redraw is what stops it
+            // coming back showing the room as it was several presses ago.
             _dirty = true;
         }
 
@@ -1428,7 +1592,7 @@ namespace ConvaiRoom
         private void WriteControls()
         {
             _builder.Clear();
-            _builder.AppendLine("<color=#ffd54d>CONTROLS</color>");
+            _builder.AppendLine(Accent("CONTROLS"));
 
             if (scanController != null)
             {
@@ -1443,24 +1607,21 @@ namespace ConvaiRoom
                 // without the panel ever asking whether you want to keep them. That is not a
                 // bug, it is the raw pipeline, but a control that leaves the readout describing
                 // a different room is worth a warning.
-                _builder.AppendLine("<color=#9a9aa0>these act on the scan itself, not on this " +
-                                    "flow</color>");
+                _builder.AppendLine(Muted("these act on the scan itself, not on this flow"));
             }
             else
             {
-                _builder.AppendLine("<color=#ff8080>no RoomScanController in the scene</color>");
+                _builder.AppendLine(Bad("no RoomScanController in the scene"));
             }
 
             // Worth its own line. OVRInput promotes hand tracking to the active controller,
             // and under it every face button above resolves to nothing -- so on hands the
             // panel is not a convenience, it is the only way to drive any of this.
-            _builder.AppendLine("<color=#9a9aa0>no face buttons on hand tracking -- use the " +
-                                "panel</color>");
+            _builder.AppendLine(Muted("no face buttons on hand tracking -- use the panel"));
 
             // Says so because nothing else does. RECENTER used to be a visible button; drag
             // is invisible until someone tells you it is there.
-            _builder.Append("<color=#9a9aa0>drag the panel by its title or readout to move " +
-                            "it</color>");
+            _builder.Append(Muted("drag either panel by its background to move both"));
 
             _controlsText.text = _builder.ToString();
         }
@@ -1591,13 +1752,12 @@ namespace ConvaiRoom
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// Redraws every piece of text on the panel.
+        /// Redraws the panel.
         ///
-        /// The readout is written PER STAGE rather than all of it every time. It used to print
-        /// the same seven lines throughout -- the navmesh line while there was nothing to bake
-        /// from, the character line before there was a character -- and a block where five of
-        /// the seven lines say "not yet" is one nobody reads, so the two that matter go unread
-        /// with them. Each stage now prints only what it is actually about.
+        /// Split in two now that the readout has its own panel: the main one is four short
+        /// pieces of text and is always drawn, and the readout is only built when someone is
+        /// actually looking at it. That split is worth having beyond the saved work -- it is
+        /// the same split the panels are: what the flow needs, and what you go looking for.
         /// </summary>
         private void Redraw()
         {
@@ -1611,10 +1771,31 @@ namespace ConvaiRoom
             _titleText.text = Title();
 
             _countsText.text = Headline();
-            _countsText.color = HeadlineIsGood ? countsReadyColor : countsIdleColor;
+            _countsText.color = HeadlineIsGood ? _skin.headlineActive : _skin.headlineIdle;
 
             _promptText.text = PromptLine();
 
+            // A plan opens the details panel on its own. It is drawn over there, it is the one
+            // thing on that panel you act on rather than read, and she announces it by speaking
+            // -- so without this the first anyone knows of a plan is being told about one they
+            // cannot see. Only on the transition, so closing it again stays closed.
+            var hasPlan = plan != null && plan.HasPlan;
+            if (hasPlan && !_hadPlan && !_detailsShown) SetDetailsShown(true);
+            _hadPlan = hasPlan;
+
+            if (_detailsShown) RedrawDetails();
+        }
+
+        /// <summary>
+        /// Builds the readout on the details panel.
+        ///
+        /// Written PER STAGE rather than all of it every time. It used to print the same seven
+        /// lines throughout -- the navmesh line while there was nothing to bake from, the
+        /// character line before there was a character -- and a block where five of the seven
+        /// say "not yet" is one nobody reads, so the two that matter go unread with them.
+        /// </summary>
+        private void RedrawDetails()
+        {
             _builder.Clear();
 
             switch (_stage)
@@ -1623,15 +1804,15 @@ namespace ConvaiRoom
                     _builder.AppendLine(DiskLine());
                     _builder.AppendLine(AnchorLine());
                     _builder.AppendLine();
-                    _builder.AppendLine("<color=#9a9aa0>scan the room to measure it, or load " +
-                                        "the last scan and look at where its boxes land</color>");
+                    _builder.AppendLine(Muted("scan the room to measure it, or load the last " +
+                                              "scan and look at where its boxes land"));
                     break;
 
                 case Stage.Scanning:
                 case Stage.Saved:
                     _builder.AppendLine(_scanning
-                        ? "scanning  : <color=#7fd97f>ON</color> - boxes grow as objects are seen"
-                        : "scanning  : <color=#ffc44d>PAUSED</color> - nothing new is recorded");
+                        ? $"scanning  : {Good("ON")} - boxes grow as objects are seen"
+                        : $"scanning  : {Warn("PAUSED")} - nothing new is recorded");
 
                     // Read the thresholds off the recorder rather than hardcoding them, so this
                     // line cannot go stale if someone tunes the clustering.
@@ -1639,7 +1820,7 @@ namespace ConvaiRoom
                         _builder.AppendLine($"ready     : seen {recorder.minObservations}+ times, " +
                                             $"under {recorder.maxObjectSize} m");
                     else
-                        _builder.AppendLine("<color=#ff8080>no recorder in the scene</color>");
+                        _builder.AppendLine(Bad("no recorder in the scene"));
 
                     _builder.AppendLine(DiskLine());
                     _builder.AppendLine(AnchorLine());
@@ -1650,8 +1831,8 @@ namespace ConvaiRoom
                     _builder.AppendLine(AlignmentLine());
                     _builder.AppendLine(AnchorLine());
                     _builder.AppendLine();
-                    _builder.AppendLine("<color=#9a9aa0>look around: the blue boxes should sit " +
-                                        "on the real furniture</color>");
+                    _builder.AppendLine(Muted("look around: the blue boxes should sit on the " +
+                                              "real furniture"));
                     break;
 
                 case Stage.Ready:
@@ -1671,26 +1852,32 @@ namespace ConvaiRoom
                     // for two reasons: by then you have plainly worked out that talking to her
                     // works, and the block is out of lines.
                     if (plan == null || !plan.HasPlan)
-                        _builder.AppendLine("<color=#9a9aa0>just talk to her -- where she goes " +
-                                            "is the conversation's business</color>");
+                        _builder.AppendLine(Muted("just talk to her -- where she goes is the " +
+                                                  "conversation's business"));
                     break;
             }
 
             _builder.AppendLine();
             _builder.AppendLine($"last: {_lastAction}");
 
-            // The plan row is not touched here. LayOutActions ran at the top of this method and
-            // ApplySlots greys the three buttons as part of it, which keeps every button on the
-            // panel updated from one place.
+            // The plan row is not touched here. LayOutActions ran before this and ApplySlots
+            // greys the three buttons as part of it, which keeps every button across both
+            // panels updated from one place.
             _statusText.text = _builder.ToString();
         }
 
-        /// <summary>Where you are, in two or three words.</summary>
+        /// <summary>
+        /// Where you are, in two or three words.
+        ///
+        /// Kept short enough to sit in the title bar next to INFO and EXIT. "SCANNING" rather
+        /// than "SCANNING THE ROOM" for exactly that reason -- the headline underneath is
+        /// already counting what is being scanned.
+        /// </summary>
         private string Title()
         {
             switch (_stage)
             {
-                case Stage.Scanning: return "SCANNING THE ROOM";
+                case Stage.Scanning: return "SCANNING";
                 case Stage.Saved: return "SCAN SAVED";
                 case Stage.Review: return "SAVED LAYOUT";
                 case Stage.Ready: return "ROOM READY";
@@ -1698,6 +1885,33 @@ namespace ConvaiRoom
                 default: return "ROOM FLOW";
             }
         }
+
+        // -----------------------------------------------------------------
+        // Palette
+        // -----------------------------------------------------------------
+
+        // Every coloured word in the readout goes through one of these rather than carrying a
+        // hex literal. That is what makes the theme worth having: a light background needs
+        // every one of these to move with it, and thirty-nine hardcoded greens and ambers
+        // scattered through the readout is a restyle nobody finishes.
+
+        /// <summary>Ready, baked, connected, present.</summary>
+        private string Good(string text) => $"<color=#{_skin.GoodHex}>{text}</color>";
+
+        /// <summary>Works, but not the way you wanted -- stale, unaligned, paused.</summary>
+        private string Warn(string text) => $"<color=#{_skin.WarnHex}>{text}</color>";
+
+        /// <summary>Missing, or failed.</summary>
+        private string Bad(string text) => $"<color=#{_skin.BadHex}>{text}</color>";
+
+        /// <summary>Hints and asides, read once and then ignored.</summary>
+        private string Muted(string text) => $"<color=#{_skin.MutedHex}>{text}</color>";
+
+        /// <summary>Quieter still. The ellipses either end of a windowed plan.</summary>
+        private string Dim(string text) => $"<color=#{_skin.DimHex}>{text}</color>";
+
+        /// <summary>The question being asked, and the CONTROLS heading.</summary>
+        private string Accent(string text) => $"<color=#{_skin.AccentHex}>{text}</color>";
 
         /// <summary>
         /// The one big number, chosen for the stage.
@@ -1761,14 +1975,14 @@ namespace ConvaiRoom
             switch (_stage)
             {
                 case Stage.Review:
-                    return "<color=#ffd54d>Use this room?</color>";
+                    return Accent("Use this room?");
 
                 case Stage.Saved:
                     // The count comes from the file that was just written rather than from the
                     // live counts, which keep moving: what you are deciding about is what
                     // landed on disk.
                     var saved = _diskObjects >= 0 ? $"Saved {_diskObjects} objects." : "Saved.";
-                    return $"<color=#ffd54d>{saved} Carry on, or move on?</color>";
+                    return Accent($"{saved} Carry on, or move on?");
 
                 default:
                     return "";
@@ -1800,7 +2014,7 @@ namespace ConvaiRoom
             var current = plan.CurrentIndex;
 
             _builder.AppendLine();
-            _builder.AppendLine($"<color=#7fd9d9>plan</color>      : {plan.Task} " +
+            _builder.AppendLine($"<color=#{_skin.PlanHex}>plan</color>      : {plan.Task} " +
                                 $"({current + 1}/{steps.Count})");
 
             // Windowed around the current step, kept inside the list at both ends so the last
@@ -1814,22 +2028,20 @@ namespace ConvaiRoom
                 last = first + PlanWindow - 1;
             }
 
-            if (first > 0) _builder.AppendLine("  <color=#6a6a70>...</color>");
+            if (first > 0) _builder.AppendLine($"  {Dim("...")}");
 
             for (var i = first; i <= last; i++)
             {
                 var step = steps[i];
                 var here = i == current;
 
-                var where = step.HasPlace ? $" <color=#9a9aa0>[{step.Where}]</color>" : "";
+                var where = step.HasPlace ? $" {Muted($"[{step.Where}]")}" : "";
                 var line = $"{step.Number} {step.Text}{where}";
 
-                _builder.AppendLine(here
-                    ? $"<color=#ffc44d>&gt; {line}</color>"
-                    : $"  <color=#9a9aa0>{line}</color>");
+                _builder.AppendLine(here ? Warn($"&gt; {line}") : $"  {Muted(line)}");
             }
 
-            if (last < steps.Count - 1) _builder.AppendLine("  <color=#6a6a70>...</color>");
+            if (last < steps.Count - 1) _builder.AppendLine($"  {Dim("...")}");
         }
 
         /// <summary>
@@ -1853,16 +2065,15 @@ namespace ConvaiRoom
             switch (_diskState)
             {
                 case DiskState.Missing:
-                    return "scan file : <color=#ff8080>NO</color> - nothing saved yet";
+                    return $"scan file : {Bad("NO")} - nothing saved yet";
 
                 case DiskState.Stale:
-                    return $"scan file : <color=#ffc44d>STALE</color> - saved before you " +
+                    return $"scan file : {Warn("STALE")} - saved before you " +
                            $"cleared ({Kilobytes()})";
 
                 default:
                     var objects = _diskObjects >= 0 ? $"{_diskObjects} objects, " : "";
-                    return $"scan file : <color=#7fd97f>YES</color> - {objects}" +
-                           $"{Kilobytes()}, {Age()}";
+                    return $"scan file : {Good("YES")} - {objects}{Kilobytes()}, {Age()}";
             }
         }
 
@@ -1871,8 +2082,8 @@ namespace ConvaiRoom
             var room = MRUK.Instance != null ? MRUK.Instance.GetCurrentRoom() : null;
 
             return room != null
-                ? "anchored  : <color=#7fd97f>MRUK room</color>"
-                : "anchored  : <color=#ffc44d>RAW WORLD SPACE</color>";
+                ? $"anchored  : {Good("MRUK room")}"
+                : $"anchored  : {Warn("RAW WORLD SPACE")}";
         }
 
         /// <summary>
@@ -1886,16 +2097,16 @@ namespace ConvaiRoom
         /// </summary>
         private string AlignmentLine()
         {
-            if (rebuilder == null) return "aligned   : <color=#9a9aa0>no rebuilder</color>";
+            if (rebuilder == null) return $"aligned   : {Muted("no rebuilder")}";
 
             var alignment = rebuilder.Alignment;
 
             if (!alignment.Applied)
-                return $"aligned   : <color=#ffc44d>NO</color> - {alignment.Summary}";
+                return $"aligned   : {Warn("NO")} - {alignment.Summary}";
 
             return alignment.Ambiguous
-                ? $"aligned   : <color=#ffc44d>AMBIGUOUS</color> - fits more than one way round"
-                : $"aligned   : <color=#7fd97f>YES</color> - {alignment.Error:F2} m off the walls";
+                ? $"aligned   : {Warn("AMBIGUOUS")} - fits more than one way round"
+                : $"aligned   : {Good("YES")} - {alignment.Error:F2} m off the walls";
         }
 
         /// <summary>
@@ -1908,16 +2119,16 @@ namespace ConvaiRoom
         private string NavMeshLine()
         {
             if (navMeshBuilder == null)
-                return "navmesh   : <color=#9a9aa0>no builder in the scene</color>";
+                return $"navmesh   : {Muted("no builder in the scene")}";
 
             if (!navMeshBuilder.HasNavMesh)
-                return "navmesh   : <color=#ffc44d>NO</color> - not baked yet";
+                return $"navmesh   : {Warn("NO")} - not baked yet";
 
             var triangles = navMeshVisualizer != null && navMeshVisualizer.TriangleCount > 0
                 ? $", {navMeshVisualizer.TriangleCount} tris"
                 : "";
 
-            return $"navmesh   : <color=#7fd97f>YES</color> - " +
+            return $"navmesh   : {Good("YES")} - " +
                    $"{navMeshBuilder.ObstacleCount} obstacles{triangles}";
         }
 
@@ -1938,13 +2149,13 @@ namespace ConvaiRoom
         private string CharacterLine()
         {
             if (characterSpawner == null || !characterSpawner.IsSpawned)
-                return "character : <color=#ff8080>GONE</color> - press RESPAWN";
+                return $"character : {Bad("GONE")} - press RESPAWN";
 
             // The reason takes the distance's place rather than following it. A session that
             // did not open is the only thing worth reading on this line, and how far away she
             // is standing while it failed is not going to help.
             if (characterVoice != null && characterVoice.State == RoomCharacterVoice.VoiceState.Failed)
-                return $"character : <color=#ff8080>FAILED</color> - {characterVoice.LastFailure}";
+                return $"character : {Bad("FAILED")} - {characterVoice.LastFailure}";
 
             var head = Camera.main;
             var distance = head != null
@@ -1984,25 +2195,25 @@ namespace ConvaiRoom
             // Presence only, which is what the panel could say before there was a session to
             // report. Worth keeping rather than complaining: the spawn and the placement are
             // still worth looking at with the voice component missing.
-            if (characterVoice == null) return "<color=#7fd97f>HERE</color>";
+            if (characterVoice == null) return Good("HERE");
 
             switch (characterVoice.State)
             {
                 case RoomCharacterVoice.VoiceState.WaitingForMicrophone:
-                    return "<color=#ffc44d>MIC PROMPT</color>";
+                    return Warn("MIC PROMPT");
 
                 case RoomCharacterVoice.VoiceState.Connecting:
-                    return "<color=#ffc44d>CONNECTING</color>";
+                    return Warn("CONNECTING");
 
                 case RoomCharacterVoice.VoiceState.Ready:
-                    if (characterVoice.IsSpeaking) return "<color=#7fd97f>SPEAKING</color>";
+                    if (characterVoice.IsSpeaking) return Good("SPEAKING");
 
                     return characterVoice.HasMicrophone
-                        ? "<color=#7fd97f>LISTENING</color>"
-                        : "<color=#ffc44d>DEAF (no mic)</color>";
+                        ? Good("LISTENING")
+                        : Warn("DEAF (no mic)");
 
                 default:
-                    return "<color=#ffc44d>NO SESSION</color>";
+                    return Warn("NO SESSION");
             }
         }
 
