@@ -20,7 +20,7 @@ namespace ConvaiRoom
     [RequireComponent(typeof(RectTransform))]
     public class ConvaiRoomPanelDragger : MonoBehaviour,
                                           IBeginDragHandler, IDragHandler, IEndDragHandler,
-                                          IPointerDownHandler
+                                          IPointerDownHandler, IInitializePotentialDragHandler
     {
         private const string Tag = "[ScanPanel]";
 
@@ -81,6 +81,30 @@ namespace ConvaiRoom
             Debug.Log($"{Tag} Background pressed (vrPointer={eventData.IsVRPointer()} " +
                       $"drag={(eventData.pointerDrag != null ? eventData.pointerDrag.name : "NONE")} " +
                       $"cam={(eventData.pressEventCamera != null ? eventData.pressEventCamera.name : "NULL")}).");
+        }
+
+        /// <summary>
+        /// Takes the drag threshold out of the decision, which is what stopped the panel moving.
+        ///
+        /// OVRInputModule does not use a pixel threshold for a tracked ray. It compares the angle
+        /// between where you pressed and where you are pointing now, and it reads both off
+        /// pointerCurrentRaycast.worldPosition -- which is only a real point while the ray is
+        /// still ON a canvas. Dragging is the one gesture that takes the ray off the panel, and
+        /// the moment it leaves, that raycast goes invalid and its worldPosition collapses to the
+        /// world origin. The angle is then measured to (0,0,0) rather than to anything you are
+        /// pointing at, and the gate never opens. Presses are unaffected because they are settled
+        /// in ProcessMousePress before any of this runs, which is why the buttons always worked
+        /// and the panel never moved.
+        ///
+        /// ShouldStartDrag returns true immediately when useDragThreshold is false, and this
+        /// handler is invoked straight after the module sets it, so this is the last word on it.
+        /// Nothing is lost by dropping the threshold: the panel is grabbed at its offset rather
+        /// than snapped to the ray, so a press that turns into a one-pixel drag moves it by one
+        /// pixel, and the buttons are separate objects that never see these events at all.
+        /// </summary>
+        public void OnInitializePotentialDrag(PointerEventData eventData)
+        {
+            eventData.useDragThreshold = false;
         }
 
         public void OnBeginDrag(PointerEventData eventData)
