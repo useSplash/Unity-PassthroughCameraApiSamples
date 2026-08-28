@@ -20,7 +20,8 @@ namespace ConvaiRoom
     [RequireComponent(typeof(RectTransform))]
     public class ConvaiRoomPanelDragger : MonoBehaviour,
                                           IBeginDragHandler, IDragHandler, IEndDragHandler,
-                                          IPointerDownHandler, IInitializePotentialDragHandler
+                                          IPointerDownHandler, IPointerUpHandler,
+                                          IInitializePotentialDragHandler
     {
         private const string Tag = "[ScanPanel]";
 
@@ -76,11 +77,33 @@ namespace ConvaiRoom
         /// </summary>
         public void OnPointerDown(PointerEventData eventData)
         {
-            if (!verboseLogging) return;
+            // Only the press that opens a hold. The module re-presses at frame rate while the
+            // button is down, and a line per frame buries everything else in the log.
+            if (!verboseLogging || _dragging) return;
 
             Debug.Log($"{Tag} Background pressed (vrPointer={eventData.IsVRPointer()} " +
                       $"drag={(eventData.pointerDrag != null ? eventData.pointerDrag.name : "NONE")} " +
                       $"cam={(eventData.pressEventCamera != null ? eventData.pressEventCamera.name : "NULL")}).");
+        }
+
+        /// <summary>
+        /// Lets go, and is the reason the release is trustworthy.
+        ///
+        /// OnEndDrag is not on its own. If the module ever reports a press and a release on the
+        /// same frame -- which it can, PressedAndReleased is a state it has -- ProcessMousePress
+        /// runs its press half first and sets dragging back to false, so the release half finds
+        /// nothing to end and never calls the end-drag handler. The grab would then be held
+        /// after the button came up and the panel would follow the ray around the room.
+        ///
+        /// The pointer-up handler is executed unconditionally on whatever took the press, so it
+        /// is the one signal that arrives however the frame is shaped.
+        /// </summary>
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            if (!_dragging) return;
+
+            _dragging = false;
+            _lastRefusal = null;
         }
 
         /// <summary>
@@ -107,9 +130,29 @@ namespace ConvaiRoom
             eventData.useDragThreshold = false;
         }
 
+        /// <summary>
+        /// Takes hold of the panel, once per hold.
+        ///
+        /// The guard is the whole of it. OVRInputModule reports a HELD button as pressed on
+        /// every frame rather than only on the frame it went down -- see rayData.IsActive =
+        /// pressed in GetMouseStateFromInputSource -- so ProcessMousePress treats every frame
+        /// as a fresh press, sets dragging back to false, and ProcessDrag then begins a whole
+        /// new drag. OnPointerDown and OnBeginDrag both fire at frame rate for one hold.
+        ///
+        /// Re-anchoring on each of those is what pinned the panel in place. The offset is
+        /// stored relative to the ray and rebuilt from the ray in OnDrag, so capturing it
+        /// again from the panel's CURRENT position, on the same frame that OnDrag rebuilds it,
+        /// makes the round trip an identity: OnDrag assigns the panel exactly the position it
+        /// already had. It moved by nothing, every frame, and no refusal was logged because
+        /// nothing had refused.
+        ///
+        /// So the grab is taken on the first begin of a hold and kept until the release clears
+        /// it. Every later begin is the module repeating itself and is ignored.
+        /// </summary>
         public void OnBeginDrag(PointerEventData eventData)
         {
-            if (verboseLogging) Debug.Log($"{Tag} OnBeginDrag.");
+            // Already holding: this is the module re-beginning the same drag, not a new grab.
+            if (_dragging) return;
 
             if (!CanDrag(eventData, out var ray)) return;
 
@@ -117,6 +160,10 @@ namespace ConvaiRoom
             _grabOffsetInRaySpace =
                 Quaternion.Inverse(Quaternion.LookRotation(ray.direction)) *
                 (target.position - ray.origin);
+
+            if (verboseLogging)
+                Debug.Log($"{Tag} Drag started, holding '{target.name}' at " +
+                          $"{_grabOffsetInRaySpace.magnitude:F2} m.");
         }
 
         public void OnDrag(PointerEventData eventData)
