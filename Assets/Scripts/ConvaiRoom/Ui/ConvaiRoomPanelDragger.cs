@@ -56,6 +56,16 @@ namespace ConvaiRoom
 
         private bool _dragging;
 
+        /// <summary>
+        /// The pointer that took hold, kept for the length of the hold so the drag can be driven
+        /// from Update rather than from the module's drag events.
+        ///
+        /// Safe to hold onto: the input module keeps one event-data object per pointer id and
+        /// mutates it in place each frame, so this reference stays live and its ray is the
+        /// current one rather than the one from the frame it was grabbed on.
+        /// </summary>
+        private PointerEventData _dragPointer;
+
         private void Awake()
         {
             _panel = GetComponentInParent<ConvaiRoomModePanel>();
@@ -96,14 +106,27 @@ namespace ConvaiRoom
         /// after the button came up and the panel would follow the ray around the room.
         ///
         /// The pointer-up handler is executed unconditionally on whatever took the press, so it
-        /// is the one signal that arrives however the frame is shaped.
+        /// is the one signal that arrives however the frame is shaped -- as long as the ray is
+        /// still on the panel. When it is not, the module has no object to deliver it to and
+        /// Update's own check is what ends the hold.
         /// </summary>
-        public void OnPointerUp(PointerEventData eventData)
+        public void OnPointerUp(PointerEventData eventData) => ReleaseHold();
+
+        /// <summary>
+        /// Lets go of the panel, from whichever of the three routes noticed first: the end-drag
+        /// event, the pointer-up event, or Update seeing the press go away. Releasing twice is
+        /// not a problem worth guarding against beyond this early return -- what would be a
+        /// problem is releasing zero times, which is why there are three.
+        /// </summary>
+        private void ReleaseHold()
         {
             if (!_dragging) return;
 
             _dragging = false;
+            _dragPointer = null;
             _lastRefusal = null;
+
+            if (verboseLogging) Debug.Log($"{Tag} Panel dragged to {target.position:F2}.");
         }
 
         /// <summary>
@@ -157,6 +180,7 @@ namespace ConvaiRoom
             if (!CanDrag(eventData, out var ray)) return;
 
             _dragging = true;
+            _dragPointer = eventData;
             _grabOffsetInRaySpace =
                 Quaternion.Inverse(Quaternion.LookRotation(ray.direction)) *
                 (target.position - ray.origin);
@@ -166,9 +190,50 @@ namespace ConvaiRoom
                           $"{_grabOffsetInRaySpace.magnitude:F2} m.");
         }
 
+        /// <summary>
+        /// Deliberately empty. The panel is moved from Update instead -- see there for why --
+        /// but the interface has to stay implemented regardless, because the module finds the
+        /// drag target with GetEventHandler&lt;IDragHandler&gt; and would never begin a drag on
+        /// a background that did not claim to handle one.
+        /// </summary>
         public void OnDrag(PointerEventData eventData)
         {
-            if (!_dragging || !CanDrag(eventData, out var ray)) return;
+        }
+
+        /// <summary>
+        /// Moves the panel, and does it here rather than in OnDrag because OnDrag stops arriving
+        /// part way through exactly the drags that need it most.
+        ///
+        /// The held button re-presses every frame, so ProcessMousePress rebuilds pointerDrag
+        /// every frame from pointerCurrentRaycast.gameObject -- and the frame the ray slips off
+        /// the panel, that is null, so pointerDrag is null and ProcessDrag skips both of its
+        /// blocks. No drag event, no movement, and the panel sits still until the ray happens
+        /// back onto it. That is the stutter, and it shows up on long drags because the ray
+        /// leaving the panel is something long drags do.
+        ///
+        /// They do it by construction, not by accident: the grab offset holds the panel's root
+        /// fixed in the ray's frame while FacePlayer turns the panel toward the head every
+        /// frame. A fixed root under a rotating plane means the ray's intersection creeps across
+        /// the surface, and far enough into a sweep it creeps off the edge.
+        ///
+        /// Driving from Update decouples the two. Where the ray points decides where the panel
+        /// goes; it no longer also decides whether the panel is allowed to move at all.
+        /// </summary>
+        private void Update()
+        {
+            if (!_dragging) return;
+
+            // The one signal that survives the ray leaving the panel. eligibleForClick is set
+            // true on every frame of a hold, before the module looks at what is under the ray,
+            // and cleared on release wherever the ray happens to be pointing -- so it says
+            // "still held" when nothing else here can, and says it honestly on the way out.
+            if (_dragPointer == null || !_dragPointer.eligibleForClick)
+            {
+                ReleaseHold();
+                return;
+            }
+
+            if (!CanDrag(_dragPointer, out var ray)) return;
 
             var offset = Quaternion.LookRotation(ray.direction) * _grabOffsetInRaySpace;
 
@@ -183,15 +248,7 @@ namespace ConvaiRoom
             if (facePlayerWhileDragging) FacePlayer();
         }
 
-        public void OnEndDrag(PointerEventData eventData)
-        {
-            if (!_dragging) return;
-
-            _dragging = false;
-            _lastRefusal = null;
-
-            if (verboseLogging) Debug.Log($"{Tag} Panel dragged to {target.position:F2}.");
-        }
+        public void OnEndDrag(PointerEventData eventData) => ReleaseHold();
 
         private bool CanDrag(PointerEventData eventData, out Ray ray)
         {
