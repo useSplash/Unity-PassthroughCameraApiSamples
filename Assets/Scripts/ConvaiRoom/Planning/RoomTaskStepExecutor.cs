@@ -74,11 +74,22 @@ namespace ConvaiRoom
         private ConvaiActionExecutionResult Execute(
             ConvaiActionInvocation invocation, StepParameters parameters)
         {
+            // Answered rather than Unhandled, and the difference is audibility rather than
+            // honesty. An Unhandled step is composed with forceSilent by the SDK, overriding
+            // every feedback mode on the character, so this guard used to end the turn in
+            // silence and leave the backend to improvise a next step out of the transcript --
+            // sounding right while the panel stayed exactly where it was. See CannotRun in
+            // RoomTaskPlanner for the whole of it.
             if (plan == null)
             {
-                return ConvaiActionExecutionResult.Unhandled(
+                const string message =
                     "There is no RoomTaskPlan in the scene, so there is nothing to step through. " +
-                    "Add one to the room manager.");
+                    "Add one to the room manager.";
+
+                Debug.LogWarning($"{Tag} {message}");
+
+                return ConvaiActionExecutionResult.Answered(
+                    "I can't step through anything on this headset just now.", message);
             }
 
             // Answered rather than Failed. The player said "next" out loud; the useful reply is

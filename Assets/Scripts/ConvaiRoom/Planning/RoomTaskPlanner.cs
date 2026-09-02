@@ -42,6 +42,17 @@ namespace ConvaiRoom
     {
         private const string Tag = "[RoomPlanner]";
 
+        /// <summary>
+        /// What she says when the planner cannot run at all.
+        ///
+        /// Shared by the setup guards and by <see cref="Excuse"/>'s missing-key branch, because
+        /// from where the player is standing they are one situation: something on this headset
+        /// is not set up, and asking again will not change it.
+        /// </summary>
+        private const string NotSetUp =
+            "I can't work out steps for that yet. My planner isn't set up on this headset, so " +
+            "I can talk about the room but not plan anything in it.";
+
         /// <summary>What the backend sends with the action.</summary>
         public sealed class PlanTaskParameters
         {
@@ -88,25 +99,28 @@ namespace ConvaiRoom
         {
             var task = parameters?.Task;
 
+            // A task that arrived empty is the one guard here that is worth asking again about:
+            // the backend may simply have invoked the action without filling the parameter in,
+            // and the next turn may well carry it. So she asks for it rather than declaring the
+            // headset broken, and the console gets the reading that is actually actionable.
             if (string.IsNullOrWhiteSpace(task))
             {
-                // Unhandled rather than Failed: nothing is broken, the action simply arrived
-                // without the one thing it needs, and the message names both ways that happens.
-                return ConvaiActionExecutionResult.Unhandled(
+                return CannotRun(
+                    "I didn't catch what you wanted me to plan. Can you say that again?",
                     "This action needs a task to plan. Check the Plan Task action declares a " +
                     "'task' string parameter, and that the character is filling it in.");
             }
 
             if (client == null)
             {
-                return ConvaiActionExecutionResult.Unhandled(
+                return CannotRun(NotSetUp,
                     "There is no RoomPlannerClient in the scene, so nothing can work out a plan. " +
                     "Add one to the room manager.");
             }
 
             if (plan == null)
             {
-                return ConvaiActionExecutionResult.Unhandled(
+                return CannotRun(NotSetUp,
                     "There is no RoomTaskPlan in the scene, so a plan would have nowhere to live " +
                     "and nothing to draw it. Add one to the room manager.");
             }
@@ -139,6 +153,35 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// Says out loud that the action could not run at all, and puts the developer's reason
+        /// in the console.
+        ///
+        /// These three guards used to return <c>Unhandled</c>, which is the status the SDK
+        /// documents for "this component cannot handle this step" and reads like the honest
+        /// answer. It is silent, and NOT by the feedback relay's choice:
+        /// <c>ConvaiActionFeedbackComposer</c> composes a batch whose steps are all Unhandled
+        /// with <c>forceSilent: true</c>, which overrides every feedback mode on the character.
+        /// No relay setting can voice one.
+        ///
+        /// So the action completed, said nothing, and the backend filled the silence by
+        /// improvising -- unable to make a formal plan, followed by a plan in prose that never
+        /// reached RoomTaskPlan and so was never on the panel. That is precisely the failure
+        /// this executor exists to prevent, arriving through the one path that could not report
+        /// itself. Adding the relay did not help and could not have.
+        ///
+        /// Answered for the same reason <see cref="Excuse"/> is: only <c>Answer</c> reaches the
+        /// character. The console line is logged here rather than left to <c>message</c>,
+        /// because a misconfiguration is worth a warning in its own right and nothing in the SDK
+        /// promises to surface that field.
+        /// </summary>
+        private static ConvaiActionExecutionResult CannotRun(string spoken, string message)
+        {
+            Debug.LogWarning($"{Tag} {message}");
+
+            return ConvaiActionExecutionResult.Answered(spoken, message);
+        }
+
+        /// <summary>
         /// Says out loud that the plan did not happen, and why.
         ///
         /// Answered rather than Failed, and it is worth being clear that this is a deliberate
@@ -166,8 +209,7 @@ namespace ConvaiRoom
 
             if (reason.IndexOf("key", System.StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                spoken = "I can't work out steps for that yet. My planner isn't set up on this " +
-                         "headset, so I can talk about the room but not plan anything in it.";
+                spoken = NotSetUp;
             }
             else if (reason.IndexOf("reach", System.StringComparison.OrdinalIgnoreCase) >= 0)
             {
