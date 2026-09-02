@@ -11191,7 +11191,10 @@ MonoBehaviour:
   - ActionName: Plan Task
     Description: The player is asking how to do something, or to be shown how. Use
       this to work out the steps before answering, and pass what they want to do as
-      the task. Do not use it for questions about the room or about you.
+      the task. Do not use it for questions about the room or about you. Always run
+      this rather than listing steps yourself. Steps you say without it are not on
+      the panel and cannot be stepped through, so a plan given straight from the
+      conversation leaves the player with nothing to follow.
     Parameters:
     - Name: task
       Description: What the player wants to do, in their own words.
@@ -11211,7 +11214,9 @@ MonoBehaviour:
   - ActionName: Step Through Plan
     Description: Move through the steps of the plan already being followed. Use this
       when asked for the next step, to go back, to repeat the current step, to start
-      over, or to jump to a numbered step.
+      over, or to jump to a numbered step. Always run this rather than reading the
+      next step out yourself. The panel only moves to the step the player is on when
+      this runs, so a step read straight from the plan leaves the panel behind.
     Parameters:
     - Name: direction
       Description: Which way to move through the steps.
