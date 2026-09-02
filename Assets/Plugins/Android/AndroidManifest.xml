@@ -6,8 +6,14 @@
        API 28, and it refuses before the socket is opened, so the request dies as a
        connection error. That is the same shape a sleeping server has, which sends you off
        to check the one thing that is working. The Anthropic backend is https and was never
-       affected, so this only bites on the local one and only after switching to it. -->
-  <application android:label="@string/app_name" android:icon="@mipmap/app_icon" android:allowBackup="false" android:usesCleartextTraffic="true">
+       affected, so this only bites on the local one and only after switching to it.
+
+       tools:replace is required rather than tidy. com.unity.dt.app-ui ships a runtime Android
+       plugin whose own manifest sets usesCleartextTraffic to false, and the merger refuses two
+       values for one attribute instead of picking a winner. Naming the attribute here says the
+       app's manifest is the one that decides, which is what we want: the package is asserting a
+       default for itself, not a policy for this application. -->
+  <application android:label="@string/app_name" android:icon="@mipmap/app_icon" android:allowBackup="false" android:usesCleartextTraffic="true" tools:replace="android:usesCleartextTraffic">
     <activity android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" android:configChanges="locale|fontScale|keyboard|keyboardHidden|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode" android:launchMode="singleTask" android:name="com.unity3d.player.UnityPlayerGameActivity" android:excludeFromRecents="true" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
