@@ -10900,6 +10900,7 @@ GameObject:
   - component: {fileID: 205058200494541277}
   - component: {fileID: 2635961944521895042}
   - component: {fileID: 983940163554673660}
+  - component: {fileID: 6037254684610857879}
   m_Layer: 0
   m_Name: Room Character Camila
   m_TagString: Untagged
@@ -11187,30 +11188,30 @@ MonoBehaviour:
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
     _disabled: 1
-    _category:
+    _category: 
   - ActionName: Plan Task
     Description: The player is asking how to do something, or to be shown how. Use
-      this to work out the steps before answering, and pass what they want to do as
-      the task. Do not use it for questions about the room or about you. Always run
-      this rather than listing steps yourself. Steps you say without it are not on
-      the panel and cannot be stepped through, so a plan given straight from the
+      this to work out the steps before answering, and pass what they want to do
+      as the task. Do not use it for questions about the room or about you. Always
+      run this rather than listing steps yourself. Steps you say without it are not
+      on the panel and cannot be stepped through, so a plan given straight from the
       conversation leaves the player with nothing to follow.
     Parameters:
     - Name: task
       Description: What the player wants to do, in their own words.
       Type: 2
-      Connector:
+      Connector: 
       Choices: []
     TargetRequirement: 0
     Executor: {fileID: 2635961944521895042}
-    ExecutorTypeHint:
+    ExecutorTypeHint: 
     TimeoutSeconds: 45
     FailurePolicyOverride: 0
     AnswerDelivery: 3
     WaitForBotSpeech: 1
     DelayAfterBotSpeechSeconds: 0
     _disabled: 0
-    _category:
+    _category: 
   - ActionName: Step Through Plan
     Description: Move through the steps of the plan already being followed. Use this
       when asked for the next step, to go back, to repeat the current step, to start
@@ -11221,7 +11222,7 @@ MonoBehaviour:
     - Name: direction
       Description: Which way to move through the steps.
       Type: 5
-      Connector:
+      Connector: 
       Choices:
       - next
       - back
@@ -11231,18 +11232,18 @@ MonoBehaviour:
     - Name: step
       Description: A step number, when the player names one. Omit otherwise.
       Type: 3
-      Connector:
+      Connector: 
       Choices: []
     TargetRequirement: 0
     Executor: {fileID: 983940163554673660}
-    ExecutorTypeHint:
+    ExecutorTypeHint: 
     TimeoutSeconds: 15
     FailurePolicyOverride: 0
     AnswerDelivery: 3
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
     _disabled: 0
-    _category:
+    _category: 
   _objects: []
   _characters: []
   _initialAttentionObject: 
@@ -11417,6 +11418,40 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomTaskStepExecutor
   plan: {fileID: 0}
   verboseLogging: 1
+--- !u!114 &6037254684610857879
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8345150164439981185}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 57bc88c36cd9665489469fd6103d0606, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Actions.ConvaiActionFeedbackRelay
+  _failureFeedbackMode: 2
+  _successFeedbackMode: 1
+  _droppedCommandFeedbackMode: 2
+  _cooldownSeconds: 10
+  _scriptedFailureLines:
+  - _reason: 1
+    _line: I can't find {target}.
+  - _reason: 2
+    _line: I can't reach {target}.
+  - _reason: 3
+    _line: Something's blocking my way to {target}.
+  - _reason: 4
+    _line: I'm not able to {action} right now.
+  - _reason: 5
+    _line: I can't {action} right now.
+  - _reason: 6
+    _line: I couldn't finish {action} in time.
+  - _reason: 7
+    _line: I stopped {action} partway through.
+  - _reason: 8
+    _line: I couldn't {action}.
+  _scriptedSuccessLine: There, all done.
 --- !u!1 &8483827831080387329
 GameObject:
   m_ObjectHideFlags: 0
