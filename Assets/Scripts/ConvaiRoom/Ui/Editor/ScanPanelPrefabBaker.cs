@@ -56,8 +56,31 @@ namespace ConvaiRoomEditor
 
         private const float ActionGap = 6f;
 
-        /// <summary>Top of the first action button, under the question line.</summary>
-        private const float FirstActionY = 156f;
+        /// <summary>
+        /// The listening light and the word beside it, between the question and the actions.
+        ///
+        /// Its own row rather than tucked into the title bar or the end of the headline, and
+        /// that costs the panel 34 units of height. Both of the free-looking places would have
+        /// put it behind text that grows: the title bar is full to 404 with INFO and EXIT, and
+        /// the headline runs to most of the panel's width at 34 point -- "12 ready / 34 tracked"
+        /// reaches the right margin on its own. A light that is sometimes underneath a number is
+        /// worse than no light.
+        /// </summary>
+        private const float VoiceRowY = 150f;
+
+        private const float VoiceRowHeight = 26f;
+
+        /// <summary>
+        /// Diameter of the light. Rounded into a circle at runtime from this -- see
+        /// ConvaiRoomModePanel.RoundVoiceDot -- so it stays round at whatever size this is.
+        /// </summary>
+        private const float VoiceDotSize = 22f;
+
+        /// <summary>Gap between the light and its word.</summary>
+        private const float VoiceLabelGap = 10f;
+
+        /// <summary>Top of the first action button, under the voice row.</summary>
+        private const float FirstActionY = 190f;
 
         /// <summary>
         /// The main panel: the action stack plus a bottom margin, and nothing else below it.
@@ -65,7 +88,8 @@ namespace ConvaiRoomEditor
         /// Half what it was. It carried the readout and the controller bindings at 716 units,
         /// and both of those moved to the details panel -- which is the point of the split, and
         /// also the nicest thing about it: the panel you look at all the time is now small
-        /// enough to sit well inside your field of view at the metre it is placed at.
+        /// enough to sit well inside your field of view at the metre it is placed at. The voice
+        /// row put 34 of those units back; it is still comfortably inside the visor.
         /// </summary>
         private const float MainHeight =
             FirstActionY + 3f * ActionHeight + 2f * ActionGap + Margin;
@@ -172,12 +196,14 @@ namespace ConvaiRoomEditor
                 0f);
 
             BuildMain(main, out var title, out var counts, out var prompt,
+                      out var voiceDot, out var voiceLabel,
                       out var slots, out var info, out var exit);
 
             BuildDetails(details, out var status, out var controls,
                          out var planBack, out var planNext, out var planClear);
 
-            BindPanelFields(panel, theme, main.Raycaster, title, counts, prompt, slots,
+            BindPanelFields(panel, theme, main.Raycaster, title, counts, prompt,
+                            voiceDot, voiceLabel, slots,
                             info, exit, details.Root.gameObject, details.Raycaster,
                             status, controls, planBack, planNext, planClear);
             return root;
@@ -263,8 +289,8 @@ namespace ConvaiRoomEditor
         /// not need reading.
         /// </summary>
         private static void BuildMain(Surface surface, out Text title, out Text counts,
-                                      out Text prompt, out Button[] slots,
-                                      out Button info, out Button exit)
+                                      out Text prompt, out Image voiceDot, out Text voiceLabel,
+                                      out Button[] slots, out Button info, out Button exit)
         {
             // 180 wide rather than the full 388, to leave the title bar's right end for the two
             // buttons. Written by the panel now that the flow has more than one stage to be in;
@@ -299,6 +325,31 @@ namespace ConvaiRoomEditor
             prompt = MakeText(surface.Root, "Prompt", Margin, 112f, RowWidth, 30f,
                               19, TextAnchor.MiddleLeft);
             Tag(prompt, ScanPanelSkin.Role.BodyText);
+
+            // Whether she can hear you: green light, red light, and the reason beside it. The
+            // panel shows and hides the pair -- there is nothing to report until a session is up
+            // -- and paints both every redraw, which is why neither is tagged with a skin role.
+            // A role paints one colour on in Awake and leaves it there, and these two ARE the
+            // readout. See ConvaiRoomModePanel.RedrawVoice.
+            voiceDot = MakeRect(surface.Root, "Voice Dot", Margin,
+                                VoiceRowY + (VoiceRowHeight - VoiceDotSize) * 0.5f,
+                                VoiceDotSize, VoiceDotSize)
+                .gameObject.AddComponent<Image>();
+
+            // The light is decoration in the way a label is: the panel behind it should still
+            // take the click, and a 22-unit target that swallows a jittery ray on its way to a
+            // drag is a target nobody aimed at.
+            voiceDot.raycastTarget = false;
+
+            // Rounded into a circle by the panel at runtime, from the same generated sprite the
+            // buttons get their corners from. It is square here, which is what the Scene view
+            // shows -- the same deal as every other radius on this panel.
+            voiceDot.color = Color.white;
+
+            voiceLabel = MakeText(surface.Root, "Voice Label",
+                                  Margin + VoiceDotSize + VoiceLabelGap, VoiceRowY,
+                                  RowWidth - VoiceDotSize - VoiceLabelGap, VoiceRowHeight,
+                                  17, TextAnchor.MiddleLeft);
 
             // The three action slots. What each says and does comes from the panel's stage --
             // see ConvaiRoomModePanel.LayOutActions -- so the labels here are only what they
@@ -415,7 +466,8 @@ namespace ConvaiRoomEditor
         /// </summary>
         private static void BindPanelFields(ConvaiRoomModePanel panel, ScanPanelTheme theme,
                                             OVRRaycaster raycaster, Text title, Text counts,
-                                            Text prompt, Button[] slots, Button info, Button exit,
+                                            Text prompt, Image voiceDot, Text voiceLabel,
+                                            Button[] slots, Button info, Button exit,
                                             GameObject detailsRoot, OVRRaycaster detailsRaycaster,
                                             Text status, Text controls,
                                             Button planBack, Button planNext, Button planClear)
@@ -431,6 +483,8 @@ namespace ConvaiRoomEditor
             Assign(so, "_titleText", title);
             Assign(so, "_countsText", counts);
             Assign(so, "_promptText", prompt);
+            Assign(so, "_voiceDot", voiceDot);
+            Assign(so, "_voiceLabel", voiceLabel);
             Assign(so, "_infoButton", info);
             Assign(so, "_exitButton", exit);
 

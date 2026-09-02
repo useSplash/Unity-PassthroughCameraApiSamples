@@ -260,6 +260,20 @@ namespace ConvaiRoom
                  "asked about it and the readout goes back to the room.")]
         [SerializeField] private Button _planClearButton;
 
+        [Header("Voice light (from the prefab, and optional)")]
+        [Tooltip("The listening light: green while she can hear you, red while she cannot. " +
+                 "Rounded into a circle at runtime from its own size, the same way the panel " +
+                 "and its buttons get their corners.\n\nOptional, and the only piece of the " +
+                 "prefab that is: it was added after the panel shipped, so a prefab baked " +
+                 "before it simply has no light rather than refusing to draw the panel. " +
+                 "Re-bake from Tools > Convai Room > Bake Scan Panel Prefab to get one.")]
+        [SerializeField] private Image _voiceDot;
+
+        [Tooltip("The word beside the light. The light says listening or not; this says which " +
+                 "of the several reasons it is not -- she is talking, the mic was refused, the " +
+                 "session is still coming up.")]
+        [SerializeField] private Text _voiceLabel;
+
         [Header("Panel placement")]
         [Tooltip("Drop the panel in front of the player once MRUK reports its scene. Once " +
                  "placed it stays put -- it never follows your head.")]
@@ -331,6 +345,14 @@ namespace ConvaiRoom
         // itself is built from the voice component each redraw.
         private RoomCharacterVoice.VoiceState _voiceState = RoomCharacterVoice.VoiceState.Idle;
         private bool _voiceSpeaking;
+
+        /// <summary>
+        /// Whether she could hear you as of the last redraw. Tracked separately from
+        /// <see cref="_voiceSpeaking"/> because it is not the same thing: the microphone stays
+        /// shut for a beat after she finishes, and the light has to follow the microphone rather
+        /// than her mouth or it goes green while the gate is still closed.
+        /// </summary>
+        private bool _voiceListening;
 
         // Disk.
         private DiskState _diskState = DiskState.Missing;
@@ -427,6 +449,19 @@ namespace ConvaiRoom
             _wired = ValidateWiring();
             if (!_wired) return;
 
+            // Said once, and not through ValidateWiring, because a missing light is not a
+            // missing panel: the flow works without it and refusing to draw anything would be a
+            // wildly disproportionate answer to a prefab baked before this existed. Saying
+            // nothing is the other wrong answer -- a feature that silently does not appear is
+            // one you go looking for in the code.
+            if (_voiceDot == null || _voiceLabel == null)
+            {
+                Debug.LogWarning($"{Tag} No listening light on this panel, so there is nothing " +
+                                 $"to say whether she can hear you. Re-bake from Tools > Convai " +
+                                 $"Room > Bake Scan Panel Prefab; the readout on the details " +
+                                 $"panel carries the same state meanwhile.", this);
+            }
+
             // The raycaster requires a Canvas on its own GameObject, so these can never be two
             // different objects -- one field instead of two, and no way to wire them apart.
             _canvasGo = _raycaster.gameObject;
@@ -444,6 +479,12 @@ namespace ConvaiRoom
             // with it visible so it can be laid out, and shipping that way would put the whole
             // readout back in front of you at launch.
             SetDetailsShown(false);
+
+            // Same deal, and the same reason: the light is baked visible so it can be laid out,
+            // and there is no session at launch for it to be reporting on. Run here rather than
+            // left to the first Redraw so it is never briefly a white square with no word
+            // beside it.
+            RedrawVoice();
 
             // Awake rather than Start, and that ordering is the point: every Awake runs before
             // any Start, so this lands before the rebuilder's own Start would have replayed the
@@ -769,11 +810,14 @@ namespace ConvaiRoom
 
             var state = characterVoice.State;
             var speaking = characterVoice.IsSpeaking;
+            var listening = characterVoice.IsListening;
 
-            if (state == _voiceState && speaking == _voiceSpeaking) return;
+            if (state == _voiceState && speaking == _voiceSpeaking && listening == _voiceListening)
+                return;
 
             _voiceState = state;
             _voiceSpeaking = speaking;
+            _voiceListening = listening;
             _dirty = true;
         }
 
@@ -910,6 +954,30 @@ namespace ConvaiRoom
                         break;
                 }
             }
+
+            RoundVoiceDot();
+        }
+
+        /// <summary>
+        /// Turns the voice light's square into a circle.
+        ///
+        /// Not a skin role, and it is the only graphic on the panel that is not. A role paints
+        /// one colour on and leaves it there, and this one is repainted every redraw -- it IS
+        /// the readout. So it takes the same generated sprite as everything else with a corner
+        /// radius, at half its own height, and the colour comes from the palette in
+        /// <see cref="RedrawVoice"/> instead.
+        ///
+        /// Drawn Simple rather than Sliced. A sliced sprite whose borders add up to more than
+        /// the rect it is drawn in is where Unity's 9-slice stops behaving; stretching a 2r+2
+        /// texture over a 2r box has no such edge and comes out round either way.
+        /// </summary>
+        private void RoundVoiceDot()
+        {
+            if (_voiceDot == null) return;
+
+            var size = _voiceDot.rectTransform.rect;
+            _voiceDot.sprite = RoundedRectSprite.Get(Mathf.Min(size.width, size.height) * 0.5f);
+            _voiceDot.type = Image.Type.Simple;
         }
 
         /// <summary>
@@ -1775,6 +1843,8 @@ namespace ConvaiRoom
 
             _promptText.text = PromptLine();
 
+            RedrawVoice();
+
             // A plan opens the details panel on its own. It is drawn over there, it is the one
             // thing on that panel you act on rather than read, and she announces it by speaking
             // -- so without this the first anyone knows of a plan is being told about one they
@@ -1784,6 +1854,77 @@ namespace ConvaiRoom
             _hadPlan = hasPlan;
 
             if (_detailsShown) RedrawDetails();
+        }
+
+        /// <summary>
+        /// Draws the listening light: green while she can hear you, red while she cannot.
+        ///
+        /// This is on the main panel rather than with the rest of the session readout, and it is
+        /// the one piece of state that belongs there. Everything on the details panel is
+        /// something you go looking for once; whether the microphone is open is something you
+        /// need to know at the moment you open your mouth, and the answer changes several times
+        /// a minute. A word on a panel behind a button would be read after the sentence it was
+        /// meant to stop.
+        ///
+        /// Two colours only, because the question is binary -- she is either hearing you or she
+        /// is not, and an amber middle would leave you working out which side of it you were on.
+        /// The several reasons for red are what the word beside the light is for.
+        ///
+        /// Hidden outright when there is no session. A red light through the whole of a scan is
+        /// a warning about a microphone nothing is listening on, and by the time it means
+        /// something you have stopped seeing it.
+        /// </summary>
+        private void RedrawVoice()
+        {
+            if (_voiceDot == null || _voiceLabel == null) return;
+
+            var live = characterVoice != null
+                       && characterVoice.State != RoomCharacterVoice.VoiceState.Idle;
+
+            if (_voiceDot.gameObject.activeSelf != live) _voiceDot.gameObject.SetActive(live);
+            if (_voiceLabel.gameObject.activeSelf != live) _voiceLabel.gameObject.SetActive(live);
+
+            if (!live) return;
+
+            var listening = characterVoice.IsListening;
+            var colour = listening ? _skin.good : _skin.bad;
+
+            _voiceDot.color = colour;
+            _voiceLabel.color = colour;
+            _voiceLabel.text = VoiceLightLabel(listening);
+        }
+
+        /// <summary>
+        /// The word beside the light, which is always the reason rather than the state.
+        ///
+        /// Green has one reason and needs none; red has four, and they want completely different
+        /// things from you. Waiting is the right response to one of them, granting a permission
+        /// to another, and pressing RESPAWN to the last -- so "NOT LISTENING" would be the least
+        /// useful true thing the panel could say.
+        /// </summary>
+        private string VoiceLightLabel(bool listening)
+        {
+            if (listening) return "LISTENING";
+
+            switch (characterVoice.State)
+            {
+                case RoomCharacterVoice.VoiceState.WaitingForMicrophone:
+                    return "WAITING FOR THE MIC";
+
+                case RoomCharacterVoice.VoiceState.Connecting:
+                    return "CONNECTING";
+
+                case RoomCharacterVoice.VoiceState.Ready:
+                    if (!characterVoice.HasMicrophone) return "NO MICROPHONE";
+
+                    // Her turn, which is the ordinary reason and the only one that clears itself.
+                    // The other is the microphone being shut by something that is not this gate
+                    // -- a reconnect, mostly -- and it says so rather than blaming her for it.
+                    return characterVoice.IsSpeaking ? "SHE IS SPEAKING" : "MIC CLOSED";
+
+                default:
+                    return "NO SESSION";
+            }
         }
 
         /// <summary>
@@ -2208,9 +2349,15 @@ namespace ConvaiRoom
                 case RoomCharacterVoice.VoiceState.Ready:
                     if (characterVoice.IsSpeaking) return Good("SPEAKING");
 
-                    return characterVoice.HasMicrophone
+                    if (!characterVoice.HasMicrophone) return Warn("DEAF (no mic)");
+
+                    // Split off SPEAKING above rather than folded in with it. Both are the
+                    // microphone being shut, but only one of them is a state you would wait out:
+                    // the gate reopens a beat after she finishes, and anything still shut past
+                    // that is shut for a reason nothing here put there.
+                    return characterVoice.IsListening
                         ? Good("LISTENING")
-                        : Warn("DEAF (no mic)");
+                        : Warn("MIC CLOSED");
 
                 default:
                     return Warn("NO SESSION");

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Threading.Tasks;
+using Convai.Runtime.Adapters.Networking;
 using Convai.Runtime.Components;
 using UnityEngine;
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -33,6 +34,13 @@ namespace ConvaiRoom
     /// end to end -- the mic goes to the server, the reply comes back as audio on her own
     /// AudioSource, and ConvaiLipSyncComponent drives her face from it. This just gets the
     /// session open and says, out loud and on the panel, which step failed when one does.
+    ///
+    /// The one thing it does hold on to afterwards is WHEN the microphone is open. In hands-free
+    /// mode the SDK leaves it open throughout, which on a headset means her own voice comes back
+    /// through the mic a few centimetres away and the server hears the pair of you at once -- she
+    /// interrupts herself, or answers a sentence she said. So the mic is shut for the length of
+    /// each of her turns and opened again after it; see <see cref="ApplyMicrophoneGate"/>.
+    /// <see cref="IsListening"/> is that gate's answer, and it is what the panel's light reads.
     /// </summary>
     public class RoomCharacterVoice : MonoBehaviour
     {
@@ -76,6 +84,22 @@ namespace ConvaiRoom
                  "read it.")]
         public float microphoneTimeoutSeconds = 30f;
 
+        [Header("Turn taking")]
+        [Tooltip("Shut the microphone for as long as she is speaking, and open it again when " +
+                 "she stops.\n\nLeave this on for a headset. The speakers are a hand's width " +
+                 "from the microphone, so with it off the server hears her reply as though you " +
+                 "had said it -- she talks over herself, or answers her own last sentence. The " +
+                 "cost is that you cannot interrupt her by talking; wait for the light to go " +
+                 "green.")]
+        public bool holdMicrophoneWhileSpeaking = true;
+
+        [Tooltip("How long to leave the microphone shut after she stops, in seconds.\n\nHer " +
+                 "audio stops at the speakers before it stops arriving at the microphone -- " +
+                 "the room reverberates, and the SDK fades the last fraction of a second out " +
+                 "rather than cutting it. Opening on the same frame she finishes lets that tail " +
+                 "back in as the first thing the server hears from you.")]
+        [Range(0f, 2f)] public float reopenDelaySeconds = 0.35f;
+
         [Header("Debug")]
         public bool verboseLogging = true;
 
@@ -100,6 +124,34 @@ namespace ConvaiRoom
         /// connected character with no mic is a real state, not a broken one.
         /// </summary>
         public bool HasMicrophone { get; private set; }
+
+        /// <summary>
+        /// Whether anything you say right now reaches her: connected, granted the microphone,
+        /// and the microphone actually open.
+        ///
+        /// The last of those is read back off the SDK rather than from what this component
+        /// last asked for, and the difference is the whole point of the property. The gate here
+        /// is not the only thing that closes the mic -- the SDK shuts it across a reconnect, and
+        /// on a session that starts muted -- so a light driven by our own intent would sit green
+        /// over a microphone that is shut. Reading the real state means it can only be wrong in
+        /// the safe direction.
+        /// </summary>
+        public bool IsListening =>
+            State == VoiceState.Ready && HasMicrophone && !IsMicrophoneMuted;
+
+        /// <summary>
+        /// Whether the microphone is shut, by anyone -- this gate, or the SDK for its own
+        /// reasons. False when there is no room to ask, which is the same answer the SDK gives
+        /// for a session that has not been opened.
+        /// </summary>
+        public bool IsMicrophoneMuted
+        {
+            get
+            {
+                var room = Room();
+                return room != null && room.IsMicMuted;
+            }
+        }
 
         /// <summary>
         /// Raised once the character is connected AND has reported ready, which is the first
@@ -370,6 +422,140 @@ namespace ConvaiRoom
         }
 
         // -----------------------------------------------------------------
+        // The microphone gate
+        // -----------------------------------------------------------------
+
+        /// <summary>The room the session belongs to, once there is one. Resolved on demand.</summary>
+        private ConvaiRoomManager _room;
+
+        /// <summary>Whether the microphone is currently shut because WE shut it.</summary>
+        private bool _held;
+
+        /// <summary>Realtime at which a held microphone may open again.</summary>
+        private float _reopenAt;
+
+        private void Update() => ApplyMicrophoneGate();
+
+        /// <summary>
+        /// Opens and shuts the microphone around her turns, so that nothing she says is offered
+        /// back to the server as something you said.
+        ///
+        /// This is a headset problem rather than a Convai one. Hands-free is the SDK behaving
+        /// correctly -- it leaves the mic open and lets the server's voice activity detection
+        /// decide who is talking -- and that works on a desktop, where the speakers are across
+        /// the desk from a headset mic. On a Quest the speakers are a few centimetres from the
+        /// microphone with nothing in between, so her reply arrives at the server twice: once as
+        /// her own audio and once as yours. What it does with that is not consistent and all of
+        /// it is bad -- she interrupts herself mid-sentence, or answers a question she just
+        /// asked. Acoustic echo cancellation is the SDK's own answer to this and it is opt-in,
+        /// per-platform and imperfect; shutting the mic is neither, and it is exactly what was
+        /// asked for.
+        ///
+        /// Polled rather than driven off OnSpeechStarted and OnSpeechStopped, and deliberately:
+        /// a gate held open by an event that did not arrive is a microphone that stays shut for
+        /// the rest of the session, with nothing on screen to say why. Reading IsSpeaking every
+        /// frame cannot get stuck -- the worst a missed event can do is hold the mic one frame
+        /// longer, and every frame after it re-decides from scratch.
+        ///
+        /// Only ever releases what it took. The SDK mutes the mic for its own reasons across a
+        /// connection boundary, and a gate that opened the mic whenever she was quiet would
+        /// undo those the moment they were applied.
+        /// </summary>
+        private void ApplyMicrophoneGate()
+        {
+            if (!holdMicrophoneWhileSpeaking)
+            {
+                Release();
+                return;
+            }
+
+            // Anything short of a live session is somebody else's business: the mic is not open
+            // yet, and taking a hold now would be a hold nothing here would think to give back.
+            if (State != VoiceState.Ready || Character == null)
+            {
+                Release();
+                return;
+            }
+
+            if (Character.IsSpeaking)
+            {
+                _reopenAt = Time.realtimeSinceStartup + Mathf.Max(0f, reopenDelaySeconds);
+                Hold();
+                return;
+            }
+
+            if (_held && Time.realtimeSinceStartup >= _reopenAt) Release();
+        }
+
+        /// <summary>
+        /// Shuts the microphone, and keeps shutting it.
+        ///
+        /// Re-asserted against what the SDK actually reports rather than latched on the first
+        /// frame of her turn. The mute is a piece of shared state -- a reconnect part-way
+        /// through a long answer reopens the mic on its own -- and a gate that only ever pushed
+        /// the button once would spend the rest of that answer believing it had. Reading the
+        /// state back first is what keeps this a no-op for all but the frame it matters on;
+        /// calling SetMicMuted unconditionally would write through to the audio track and log an
+        /// SDK line at every frame she speaks.
+        /// </summary>
+        private void Hold()
+        {
+            var room = Room();
+            if (room == null) return;
+
+            if (!room.IsMicMuted) room.SetMicMuted(true);
+
+            if (_held) return;
+
+            _held = true;
+            if (verboseLogging) Debug.Log($"{Tag} She started speaking; microphone shut.");
+        }
+
+        /// <summary>
+        /// Gives the microphone back, if we are the ones holding it.
+        ///
+        /// Safe to call from anywhere and on every frame -- it is a no-op unless
+        /// <see cref="_held"/> says there is something to give back, which is what lets the
+        /// gate, the teardown and the inspector switch all share one way out.
+        /// </summary>
+        private void Release()
+        {
+            if (!_held) return;
+
+            _held = false;
+
+            var room = Room();
+            if (room == null) return;
+
+            // Only if it is still shut. A hold the SDK has already lifted underneath us -- it
+            // reopens the mic when a reconnect finishes -- is one there is nothing left to give
+            // back, and writing through to the audio track anyway would put an SDK log line in
+            // logcat for every turn she takes.
+            if (room.IsMicMuted) room.SetMicMuted(false);
+
+            if (verboseLogging) Debug.Log($"{Tag} She stopped speaking; microphone open.");
+        }
+
+        /// <summary>
+        /// The room manager, which is where the microphone lives.
+        ///
+        /// It is a component on the ConvaiManager's own GameObject -- the manager's accessor for
+        /// it is internal to the SDK, so this goes through GetComponent instead. Cached, and the
+        /// null check is Unity's: a manager destroyed between scenes compares equal to null and
+        /// is looked up again rather than handed back as a live reference.
+        /// </summary>
+        private ConvaiRoomManager Room()
+        {
+            if (_room != null) return _room;
+
+            var manager = ConvaiManager.ActiveManager;
+            if (manager == null) return null;
+
+            _room = manager.GetComponent<ConvaiRoomManager>();
+            return _room;
+        }
+
+        // -----------------------------------------------------------------
         // Closing
         // -----------------------------------------------------------------
 
@@ -393,6 +579,12 @@ namespace ConvaiRoom
             // exactly what leaving the character phase should do -- otherwise a permission
             // answered after the character has gone goes on to connect a session for her.
             StopAllCoroutines();
+
+            // Before anything else, and before the state below makes the gate stop looking. The
+            // mute lives on the room's audio track rather than on the character, so a hold taken
+            // mid-sentence and not given back here outlives her: the next character spawned into
+            // the same room comes up connected, ready, and unable to hear a word.
+            Release();
 
             var character = Character;
             Character = null;

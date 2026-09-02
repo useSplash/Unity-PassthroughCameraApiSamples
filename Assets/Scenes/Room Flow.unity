@@ -6838,6 +6838,8 @@ MonoBehaviour:
   spawner: {fileID: 1174230536}
   requestMicrophonePermission: 1
   microphoneTimeoutSeconds: 30
+  holdMicrophoneWhileSpeaking: 1
+  reopenDelaySeconds: 0.35
   verboseLogging: 1
 --- !u!1 &1174893042
 GameObject:
@@ -8040,6 +8042,7 @@ MonoBehaviour:
   visionPublisher: {fileID: 502312528}
   planner: {fileID: 1339185277}
   plan: {fileID: 1339185276}
+  voice: {fileID: 0}
 --- !u!114 &1339185270
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8092,6 +8095,7 @@ MonoBehaviour:
   rebuilder: {fileID: 1339185264}
   roomManager: {fileID: 502312525}
   mrukTimeoutSeconds: 5
+  replayScanOnStart: 0
   verboseLogging: 1
 --- !u!114 &1339185273
 MonoBehaviour:
