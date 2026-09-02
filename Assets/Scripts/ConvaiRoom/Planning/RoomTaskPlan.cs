@@ -252,9 +252,18 @@ namespace ConvaiRoom
                 // Emptied rather than removed, because a removed key leaves whatever she was
                 // last told still sitting in her context -- she would answer "what's next?" from
                 // a plan that has been thrown away.
-                facts["plan.task"] = "nothing is being planned right now";
-                facts["plan.steps"] = "";
-                facts["plan.current"] = "";
+                //
+                // Worded as an EMPTY SLOT rather than as a condition, and the wording is the
+                // whole of it. "Nothing is being planned right now" is a sentence about the
+                // world, and a model handed that when the player asks for a plan reads it as
+                // the answer: it says nothing is being planned right now, and means it. The
+                // facts here describe what the field holds, and the first one says outright
+                // that planning is still on the table -- an empty slot invites filling, a
+                // standing condition does not.
+                facts["plan.task"] = "none. No plan is being followed. A new one can be " +
+                                     "planned whenever the player asks for one.";
+                facts["plan.steps"] = "none";
+                facts["plan.current"] = "none";
             }
             else
             {
