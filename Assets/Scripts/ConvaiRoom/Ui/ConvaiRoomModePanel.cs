@@ -2179,7 +2179,12 @@ namespace ConvaiRoom
                 var where = step.HasPlace ? $" {Muted($"[{step.Where}]")}" : "";
                 var line = $"{step.Number} {step.Text}{where}";
 
-                _builder.AppendLine(here ? Warn($"&gt; {line}") : $"  {Muted(line)}");
+                // A bare '>' rather than the escaped form. This is drawn into a legacy
+                // UnityEngine.UI.Text, whose rich text understands tags and nothing else --
+                // there is no entity decoding, so "&gt;" reaches the panel as those four
+                // characters and the one line you are meant to pick out is the one wearing
+                // markup. Only '<' opens a tag, so '>' never needed escaping here.
+                _builder.AppendLine(here ? Warn($"> {line}") : $"  {Muted(line)}");
             }
 
             if (last < steps.Count - 1) _builder.AppendLine($"  {Dim("...")}");
