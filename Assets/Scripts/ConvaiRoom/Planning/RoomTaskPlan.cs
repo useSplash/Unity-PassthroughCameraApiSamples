@@ -253,15 +253,22 @@ namespace ConvaiRoom
                 // last told still sitting in her context -- she would answer "what's next?" from
                 // a plan that has been thrown away.
                 //
-                // Worded as an EMPTY SLOT rather than as a condition, and the wording is the
-                // whole of it. "Nothing is being planned right now" is a sentence about the
-                // world, and a model handed that when the player asks for a plan reads it as
-                // the answer: it says nothing is being planned right now, and means it. The
-                // facts here describe what the field holds, and the first one says outright
-                // that planning is still on the table -- an empty slot invites filling, a
-                // standing condition does not.
-                facts["plan.task"] = "none. No plan is being followed. A new one can be " +
-                                     "planned whenever the player asks for one.";
+                // A VALUE, not a sentence. Both ways of writing this wrong have now been tried
+                // on a headset and both do the same damage: whatever prose sits here is read as
+                // the answer to the next question about planning.
+                //
+                // "Nothing is being planned right now" is a statement about the world, and she
+                // refused -- she said she could not make a plan right now, in those words.
+                // Replacing it with a sentence that said a new plan could be made whenever the
+                // player asked bought a different failure: she made one herself, out loud, in
+                // prose, and the Plan Task action never ran. The room ended up with no plan
+                // while she talked as though there were one.
+                //
+                // So there is nothing here to answer from. "none" is a field's value; it says
+                // the slot is empty and offers no reading about who may fill it or when.
+                // Whether she reaches for the action is the action description's job, and it is
+                // the only place that decision belongs.
+                facts["plan.task"] = "none";
                 facts["plan.steps"] = "none";
                 facts["plan.current"] = "none";
             }
