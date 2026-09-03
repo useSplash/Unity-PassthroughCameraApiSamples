@@ -271,6 +271,81 @@ no-transcript-text decision, and it has a real cost worth stating in the write-u
 
 ---
 
+## The offline plan harness
+
+**No headset needed, and no participant either.** At n = 4 the participant session supports a
+within-participant probe and a qualitative account of one task each — four observations, not a
+sample. This corpus is where the study's quantitative claims about plan quality actually come
+from, and nothing about it depends on how many participants there were: a room does not need
+someone standing in it to be planned about.
+
+**`Tools > Convai Room > Plan Corpus Harness`.** Add saved `room_scan.json` files, one task per
+line, tick the conditions (grounded / ungrounded) and backends (Anthropic / Ollama) to run, set
+repeats, and press Start. It runs entirely in the Editor — no scene, no Play Mode.
+
+- **Repeats = 1** is a full-factorial sweep: every scan × every task × every ticked condition ×
+  every ticked backend, once each.
+- **Repeats ≥ 2** is the consistency mode — the same cell run repeatedly, scored on how much the
+  plan agrees with itself. 10 is the study's own target; narrow the scans, tasks or backends
+  first, or the request count multiplies fast.
+
+**It does not need a scene**, and that is the load-bearing fact that makes it possible at all.
+`RoomTaskVocabulary.Collect` — what the live app calls for its place list — searches for
+`ConvaiActionTarget` components in a *loaded scene*, and returns nothing here by construction.
+`RoomScanContext.PlacesFor` and `.SummaryFor` are the offline replacements: the same naming and
+description code the headset runs (`Choose`, `NameThem`, `BuildDescription`), reading only the
+scan file. A harness that re-derived names its own way would silently plan against a differently
+named room while looking exactly like the one participants saw.
+
+**The player-distance trim has no player, so the room's centre stands in.** The live path caps
+the offered places to `maxPlaces` nearest *the player*; offline there is no player, so
+`PlacesFor`'s second parameter caps nearest *the room centre* instead — the same anchor every
+object's own description already reports its distance from. This is a documented divergence,
+not a hidden one: skipping the cap entirely would hand the planner a bigger vocabulary than any
+participant's session ever did.
+
+**Every attempt reuses `RoomPlannerClient.OnPlanAttempt`** — the event item 4 built specifically
+so the participant recorder and this harness measure "what is a plan attempt" identically rather
+than through two paths that could disagree.
+
+Each row also gets, beyond what the live session records:
+- **`roomMentions`** — steps whose *text* names something the room has, whether or not the step
+  was grounded to it. On the grounded arm it is a specificity signal; on the ungrounded arm it
+  is a **leakage check** — an ungrounded planner was told nothing about the room, so any mention
+  of its furniture got there by guessing a common word, and a high count means the arm is less
+  ungrounded than the condition claims.
+- **`wordsPerStep`** — a crude, explicitly-labelled specificity proxy. The blind sheet is what
+  actually answers specificity; this just flags a backend that has collapsed into one-word steps
+  without reading four hundred plans to notice.
+
+**Domain reload will eat a run in progress.** A script recompile while the harness is going
+destroys its window state along with whatever request was in flight — nothing can prevent that.
+The corpus is flushed to disk after *every* completed plan for exactly this reason: the worst a
+reload costs is the one job that was running, not the run. Don't edit scripts mid-run.
+
+**Output**, next to the corpus JSON in `<persistentDataPath>/plans/`:
+- `plans_<timestamp>.json` — every plan, full text, full condition. Not de-identified; this is
+  the researcher's own file.
+- `.summary.txt` — per (condition, backend): success rate, latency p50/p90/p99, groundedness,
+  dropped locations, words/step, room mentions, and every distinct failure reason **tallied
+  verbatim** rather than sorted into an invented "schema violation" bucket that could misclassify
+  an ambiguous case.
+- `.blind.csv` + `.blind_key.csv` — the rating sheet and its key, **kept as separate files on
+  purpose**. The sheet hides backend, model and condition — exactly what could bias a
+  correctness/safety/appropriateness rating — while room and task stay visible since the rater
+  needs them. The shuffle is seeded from the run id (not `string.GetHashCode()`, which is
+  unstable across processes) so regenerating the report later reproduces the same blind ids
+  rather than invalidating ratings already in progress.
+- `.consistency.csv` — only written when `repeats > 1`: mean place-set agreement per (room,
+  task, condition, backend) cell, over every pair of its repeats.
+
+**`PlanScoring`** holds every piece of arithmetic above as pure, static functions — separated
+from the harness specifically so `StudySelfCheck` can assert them against answers worked out on
+paper. A network loop cannot be checked that way; this is where the claims actually live, so
+this is the part that has to be provably right.
+
+---
+
 ## The extent ablation
 
 The scanner sizes an object by taking per-axis percentiles over a rolling window of
@@ -359,6 +434,10 @@ false`).
   agrees with a mistake is worse than no check. `string.GetHashCode` is what this rules out —
   .NET randomises string hashing per process, so a seed from it differs between two runs of the
   same build and the recorded number would reproduce nothing
+- **`PlanScoring`**, against numbers worked out by hand: whole-word matching against the exact
+  counterexample in its own remark (`"table"` really is a substring of `"comfortable"`),
+  words-per-step ignoring blank steps, nearest-rank percentiles including that the caller's list
+  is not reordered, and place agreement's partial-overlap and mean-of-every-pair cases
 - **the ablation replay**, against two synthetic logs with answers worked out on paper: one
   where the percentile must trim an outlier the union keeps (0.5 m vs 2.0 m), and one where a
   merge across a 90° frame must land at 1.5 m. Both were confirmed independently before being

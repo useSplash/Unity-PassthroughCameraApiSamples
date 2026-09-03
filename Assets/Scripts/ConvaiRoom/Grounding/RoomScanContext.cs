@@ -125,6 +125,111 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// The places this scan would offer a planner, worked out without a scene.
+        ///
+        /// WHY THIS IS HERE AND NOT IN THE HARNESS. The offline plan corpus is only comparable
+        /// to what participants experienced if the planner is offered the same vocabulary they
+        /// were, and that vocabulary is not in the scan file -- it is the OUTPUT of the naming
+        /// pass below. "chair by the couch" is invented at rebuild time by a greedy
+        /// landmark-by-distance assignment under the <see cref="maxObjects"/> cap, and a harness
+        /// that re-derived names its own way would produce a corpus about a differently named
+        /// room while looking exactly like one about the same room.
+        ///
+        /// So it runs the real thing. <see cref="Choose"/>, <see cref="NameThem"/> and
+        /// <see cref="BuildDescription"/> are the same code the headset runs, and all three turn
+        /// out to read only the scan data -- observation counts and room-local positions -- and
+        /// never the spawned proxies, which is what makes this possible at all.
+        ///
+        /// The returned places carry a null Target. Nothing on the planner's request path
+        /// touches it: the schema enum is built from Name, and the prompt from Name and
+        /// Description. A place with no GameObject is meaningless to the walk executor and fine
+        /// here, which is exactly the distinction between planning about a room and standing
+        /// in one.
+        ///
+        /// <paramref name="maxPlaces"/> is the SECOND cap the live path applies and this
+        /// replicates it, imperfectly by necessity. Online, RoomTaskPlanner asks
+        /// RoomTaskVocabulary.Collect for the nearest <c>maxPlaces</c> targets TO THE PLAYER,
+        /// because the room a plan should be about is the one somebody is standing in. Offline
+        /// there is no player, so this measures from the room's own centre instead -- the same
+        /// anchor every object's description already reports its own distance from. It is a
+        /// documented divergence, not a hidden one: a harness that skipped this cap entirely
+        /// would hand the planner a bigger vocabulary than any participant's session ever did,
+        /// which is exactly the kind of difference that makes a corpus non-representative
+        /// without anyone noticing.
+        /// </summary>
+        public static List<RoomTaskVocabulary.Place> PlacesFor(RoomScanFile scan, int maxObjects,
+                                                                int maxPlaces = 0)
+        {
+            var places = new List<RoomTaskVocabulary.Place>();
+
+            if (scan?.objects == null || scan.objects.Count == 0) return places;
+
+            var rebuilt = new List<RoomScanRebuilder.RebuiltObject>(scan.objects.Count);
+            foreach (var data in scan.objects)
+            {
+                if (data == null) continue;
+
+                // Null proxy on purpose -- see the remark. Everything below reads Data.
+                rebuilt.Add(new RoomScanRebuilder.RebuiltObject(data, null));
+            }
+
+            var chosen = Choose(rebuilt, maxObjects);
+            var names = NameThem(chosen);
+            var centre = RoomCentre(scan);
+
+            var indices = new List<int>(chosen.Count);
+            for (var i = 0; i < chosen.Count; i++) indices.Add(i);
+
+            // Nearest-to-centre first, only when the cap actually bites -- same guard
+            // RoomTaskVocabulary.Collect uses, and for the same reason: sorting is wasted work
+            // in the common case where nothing gets trimmed.
+            if (maxPlaces > 0 && chosen.Count > maxPlaces)
+            {
+                indices.Sort((a, b) =>
+                {
+                    var da = (chosen[a].Data.position.ToVector3() - centre).sqrMagnitude;
+                    var db = (chosen[b].Data.position.ToVector3() - centre).sqrMagnitude;
+                    return da.CompareTo(db);
+                });
+
+                indices.RemoveRange(maxPlaces, indices.Count - maxPlaces);
+            }
+
+            foreach (var i in indices)
+            {
+                places.Add(new RoomTaskVocabulary.Place(
+                    names[i].Name,
+                    BuildDescription(chosen[i].Data, scan, centre),
+                    null));
+            }
+
+            return places;
+        }
+
+        /// <summary>
+        /// The one-line room summary for a scan, without a scene.
+        ///
+        /// The ungrounded arm of the plan ablation is an empty place list AND a withheld
+        /// summary, so the harness needs to be able to produce this one deliberately in order
+        /// to deliberately not send it. Shares <see cref="RoomSize"/> and <see cref="Contents"/>
+        /// with the property the character is given, for the reason that property gives: two
+        /// descriptions of one room, written by two pieces of code, is how a plan ends up sized
+        /// for a room nobody is standing in.
+        /// </summary>
+        public static string SummaryFor(RoomScanFile scan)
+        {
+            if (scan == null) return "";
+
+            var size = RoomSize(scan);
+            var contents = ContentsOf(scan);
+
+            if (string.IsNullOrEmpty(size)) return contents;
+            if (string.IsNullOrEmpty(contents)) return size;
+
+            return $"{size}, containing {contents}";
+        }
+
+        /// <summary>
         /// Finds the box she knows by this name, matching aliases as well as primary names.
         ///
         /// Aliases are the reason this exists. Every repeated object carries its number as an
@@ -259,7 +364,7 @@ namespace ConvaiRoom
             // No cleanup pass for the previous scan's objects. Rebuild destroys every proxy it
             // spawned, and ConvaiObjectMetadata unregisters itself in OnDestroy, so the old set
             // has already left the registry by the time this runs.
-            var chosen = Choose(source.Rebuilt);
+            var chosen = Choose(source.Rebuilt, maxObjects);
             var names = NameThem(chosen);
 
             var centre = RoomCentre(source.Scan);
@@ -299,8 +404,8 @@ namespace ConvaiRoom
         /// was there. A poster of a dog scores high confidence every time and is still not a dog;
         /// a couch seen from forty angles is a couch.
         /// </summary>
-        private List<RoomScanRebuilder.RebuiltObject> Choose(
-            IReadOnlyList<RoomScanRebuilder.RebuiltObject> rebuilt)
+        private static List<RoomScanRebuilder.RebuiltObject> Choose(
+            IReadOnlyList<RoomScanRebuilder.RebuiltObject> rebuilt, int maxObjects)
         {
             var all = new List<RoomScanRebuilder.RebuiltObject>(rebuilt.Count);
             foreach (var entry in rebuilt)
@@ -652,22 +757,43 @@ namespace ConvaiRoom
             if (scan.objects == null || scan.objects.Count == 0)
                 return "nothing was picked up in the scan";
 
-            var totals = new Dictionary<string, int>();
-            var order = new List<string>();
-
             // The described set when there is one, so the summary and the world objects agree.
             // Falls back to the raw scan only when object descriptions are switched off, where
             // there is nothing to agree with and the file is the best answer available.
-            if (_described.Count > 0)
-            {
-                foreach (var entry in _described) Tally(totals, order, entry.Label);
-            }
-            else
-            {
-                foreach (var obj in scan.objects) Tally(totals, order, Label(obj));
-            }
+            if (_described.Count == 0) return ContentsOf(scan);
 
+            var totals = new Dictionary<string, int>();
+            var order = new List<string>();
+
+            foreach (var entry in _described) Tally(totals, order, entry.Label);
+
+            return Phrase(totals, order);
+        }
+
+        /// <summary>
+        /// The same count taken from the scan file alone, for callers with no scene.
+        ///
+        /// Split out rather than duplicated in the harness: this sentence goes into the planner
+        /// prompt on the grounded arm, and a second implementation of it would be a second thing
+        /// the offline corpus could differ from the headset by.
+        /// </summary>
+        private static string ContentsOf(RoomScanFile scan)
+        {
+            if (scan?.objects == null || scan.objects.Count == 0)
+                return "nothing was picked up in the scan";
+
+            var totals = new Dictionary<string, int>();
+            var order = new List<string>();
+
+            foreach (var obj in scan.objects) Tally(totals, order, Label(obj));
+
+            return Phrase(totals, order);
+        }
+
+        private static string Phrase(Dictionary<string, int> totals, List<string> order)
+        {
             var parts = new List<string>(order.Count);
+
             foreach (var label in order)
             {
                 var count = totals[label];

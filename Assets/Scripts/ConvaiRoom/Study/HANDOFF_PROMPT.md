@@ -1,18 +1,19 @@
-# Handoff — study instrumentation, phase 5
+# Handoff — study instrumentation, phase 6
 
-Read this first, then start at **Build order, item 5** — which is now the one that matters
-most. Items 1–4 are done.
+Read this first, then start at **Build order, item 6** — the last one on the original list.
+Items 1–5 are done, and item 5 (the one that carries the study's actual statistical weight) is
+verified against a live Unity Editor, not just a `dotnet` compile check.
 
 ## Where things stand
 
-Branch **`user-test-metrics`** (off `refinement`). Items 1–4 are done and compile clean.
-Items 1–2 are committed (`f118cc1`), item 3 (`8e35b17`); item 4 is uncommitted in the tree.
+Branch **`user-test-metrics`** (off `refinement`). Items 1–5 are done and compile clean.
+Items 1–2 are committed (`f118cc1`), item 3 (`8e35b17`), item 4 (`4d1f981`); item 5 is
+uncommitted in the tree.
 
-**Item 5 carries most of the study's quantitative weight.** At n = 4 the participant sessions
-support a within-participant probe and a qualitative account, and nothing more; the plan corpus
-is unaffected by the participant count and is where the numbers come from. `OnPlanAttempt`
-already gives it latency, groundedness and the dropped-location count — item 4 built it once so
-item 5 could use it without a second measurement path that could disagree.
+**One background task is pending**, spawned this session: `task_9895b05d`, two small
+pre-existing bugs found while verifying item 5 live (a `RoomTruthMarker.ParseLabels` empty-input
+edge case, and a floating-point boundary in a self-check's own tolerance). Neither blocks
+anything here; see the task or the "Panel"/self-check facts below for exact file:line detail.
 
 **Decisions taken (2026-09-03), do not reopen:**
 
@@ -30,13 +31,15 @@ and `Assets/Scripts/RoomScan/`.
 
 Phase 1 added a user-study recorder. See `README.md` in this folder for how it is operated.
 
-**Protocol (revision 3):** https://claude.ai/code/artifact/d1adeec4-f5fd-4662-a94d-56076c8e1a83
+**Protocol (revision 4, updated 2026-09-03):** https://claude.ai/code/artifact/d1adeec4-f5fd-4662-a94d-56076c8e1a83
 
 ## The two hard constraints
 
 Everything below is shaped by these. Do not design past them.
 
-1. **≤ 30–40 Convai requests per participant.** A conversation turn is a request.
+1. **≤ 40 Convai requests per participant** (settled — see decisions above). A conversation
+   turn is a request; the hard stop that would enforce this is opt-in and off by default,
+   because the SDK never reports how much of the real quota is actually left.
 2. **15–20 minutes in the headset**, plus a 20–30 minute interview afterwards.
 
 **n = 4 participants.** This is fixed — time and resources.
@@ -57,6 +60,10 @@ Everything below is shaped by these. Do not design past them.
 | `Grounding/RoomAttentionExecutor.cs` | The "Look At" action — naming sets attention |
 | `Study/ConvaiEventBinder.cs` | Keeps an SDK subscription alive across manager swaps |
 | `Study/StudyTranscriptWatch.cs` | Utterance counts and timings, never text |
+| `Study/PlanCorpusData.cs` | Offline plan corpus DTOs + `PlanCorpusIO` |
+| `Study/PlanScoring.cs` | Pure, self-checked corpus arithmetic |
+| `Study/Editor/PlanCorpusHarness.cs` | `Tools > Convai Room > Plan Corpus Harness` |
+| `Study/Editor/PlanCorpusReport.cs` | Summary / blind sheet / consistency export |
 
 Edits to existing files: `ConvaiRoomModePanel` gained `OnStageChanged`, `OnReported`, a
 public `Stage` enum, a study sub-mode branch in `LayOutActions`, and the study entry slot at
@@ -114,15 +121,50 @@ go) and `ASSIST` (greyed with "no task open" rather than refused after the press
 blocked by the `RoomTaskPlan` bug below, which is a behaviour change to shipped code and was
 left out of item 4's stated scope deliberately. Do it as part of item 5 or as its own thing.
 
-### 5. Offline plan harness — no headset needed
+### 5. Offline plan harness — **DONE**
 
-Drive the planner unattended across all six saved scans and both backends; target ~400
-plans. Emits groundedness, schema violations, specificity, latency percentiles, and a
-de-identified plan sheet for blind rating (correctness, safety, appropriateness). Also a
-consistency mode: 10 repeats per (room, task), reporting step-set agreement.
+`Study/Editor/PlanCorpusHarness.cs` (EditorWindow, `Tools > Convai Room > Plan Corpus Harness`),
+`Study/Editor/PlanCorpusReport.cs` (summary/blind-sheet/consistency export), `Study/PlanScoring.cs`
+(pure, self-checked arithmetic), `Study/PlanCorpusData.cs` (DTOs).
 
-At n = 4 this corpus carries most of the study's quantitative weight — it is not affected
-by the participant count. Weight effort accordingly.
+Two facts worth knowing before touching this again:
+
+- **There is no canonical list of the "six household tasks"** anywhere in this repo or the
+  protocol artifact — the dropped-features table just says "six household tasks" and the
+  participant-session block names one example ("constrained adapt"/"help me set this space up")
+  as one of "the other four types". Nobody wrote the other five/six down where code could find
+  them. The harness therefore takes tasks as **input** (one per line in the window), not as a
+  hardcoded list — do not invent task text and put it in code.
+- **`RoomTaskVocabulary.Collect` cannot be reused offline** — it searches the *live scene* for
+  `ConvaiActionTarget` components and returns nothing without one. `RoomScanContext` gained two
+  new static methods that read only the scan file: `PlacesFor(scan, maxObjects, maxPlaces=0)`
+  and `SummaryFor(scan)`. They run the SAME naming/description code the headset does
+  (`Choose`/`NameThem`/`BuildDescription`, `Choose` was made static to allow this), which is
+  what makes the corpus comparable to what participants actually saw rather than a parallel
+  guess at it. `Contents` was split into an instance version (reads `_described`, for the live
+  character) and a static `ContentsOf` (reads the scan directly, for both `SummaryFor` and the
+  live path when nothing has been described yet) — that split already existed as a branch inside
+  `Contents`; it is now two methods instead of one with a condition in it.
+- **`maxPlaces` has no player to measure from offline.** The live path (`RoomTaskPlanner` →
+  `RoomTaskVocabulary.Collect(maxPlaces, playerPosition)`) sorts nearest-to-player and trims.
+  `PlacesFor`'s second cap does the same sort but from the **room centre** — the only anchor
+  that exists without a person standing somewhere. This is a real, documented divergence, not
+  an oversight; skipping the cap entirely would have been the wrong kind of easy.
+- **`OnPlanAttempt` (item 4) is reused, not reimplemented.** Subscribe around each
+  `PlanAsync` call, capture the one event it raises, and read latency/groundedness/dropped-count
+  straight off it. This is why item 4 built that event the way it did.
+- **Verified live, not just `dotnet build`.** UnityMCP is connected in this project now (it
+  was not in the previous session — see the correction below). Ran the actual Editor
+  self-check: 117/119 passed; the 2 failures are pre-existing, in code nobody touched this
+  session (`RoomTruthMarker.ParseLabels` empty-input edge case, and a floating-point boundary
+  in `CheckQuantisation`'s own tolerance). Flagged as a separate task
+  (`task_9895b05d`), not fixed — out of this item's scope. Also opened the harness window
+  itself via `execute_menu_item`: zero errors/warnings on a real `OnGUI` pass. Did **not**
+  press Start — that fires real network requests and costs real API/Ollama time, not something
+  to trigger unattended.
+- **Not implemented**: schema-violation as a distinct category. Failures are tallied by their
+  exact message instead (`.summary.txt` lists every distinct string with a count) — a guessed
+  taxonomy could misclassify an ambiguous failure, and the exact strings already exist for free.
 
 ### 6. Rebuild / alignment / per-object poses
 
@@ -255,9 +297,12 @@ first. Expect 7 pre-existing CS0618 warnings from `Assets/PassthroughCameraApiSa
 repo's habit is Editor menu items that assert and log. Extend it for anything new; the
 JsonUtility round-trip check is the one that matters, because JsonUtility fails silently.
 
-**Unity MCP** was not connected in the previous session (`ConnectionRefused`). Check whether
-it is available before assuming scene edits are possible. The editor itself was running and
-idle. Nothing built so far needs MCP.
+**Unity MCP** — corrected 2026-09-03: it **is connected now** (`Unity 6000.4.3f1`, scene
+`Room Flow.unity`, project `Unity-PassthroughCameraApiSamples`), where an earlier session found
+`ConnectionRefused`. Don't assume either state — check `mcpforunity://editor/state` before
+relying on it. When it is up, prefer it over a `dotnet` compile-check for anything with runtime
+behavior: item 5's self-check and Editor-window verification were both confirmed by actually
+running them, which is strictly stronger than syntax-checking the C# alone.
 
 ## Git hygiene
 
@@ -268,7 +313,8 @@ staged: `Packages/manifest.json`, `.vscode/*`, `Unity-PassthroughCameraApiSample
 Two remotes: `origin` (useSplash fork) and `upstream` (oculus-samples) — always pass
 `--repo useSplash/...` to `gh`.
 
-Phase 1 is uncommitted. Committing it before starting phase 2 is reasonable.
+Items 1–4 are committed (`f118cc1`, `8e35b17`, `4d1f981`; see the top of this file). Item 5 is
+uncommitted — commit it before starting item 6, same reasoning as every item before it.
 
 ## External work — not code, start it in parallel
 
@@ -289,14 +335,21 @@ Phase 1 is uncommitted. Committing it before starting phase 2 is reasonable.
    Convai dashboard, or naming resolves to nothing and the block runs pointing-only (it says
    so, in the console and in `referenceBlock.unavailable`).
 
-5. **New `.cs` files have no `.meta` yet** — Unity generates them on next focus. Let it, rather
-   than hand-writing GUIDs.
+5. **A new `.cs` file has no `.meta` until Unity focuses/refreshes.** True for the instant right
+   after `Write`, not a standing problem — confirmed this session that UnityMCP's
+   `refresh_unity` (or just proceeding to the next tool call, which seems to trigger it
+   incidentally) generates them within the same turn. Still worth checking before a commit if
+   Unity was never focused in between.
+6. **Six household task prompts, for item 5's harness.** Nobody has written these down where
+   code could find them — see item 5's notes above. Whoever runs the corpus sweep needs to
+   supply real task text; this is a content decision, not a code one.
 
 ## Open decisions
 
-None outstanding. Both of revision 3's are settled at the top of this file, and protocol
-**revision 4** in the artifact reflects them.
+None outstanding for the code. Both of revision 3's are settled at the top of this file, and
+protocol **revision 4** in the artifact reflects them.
 
-The next judgement call belongs to item 5: the offline plan harness now carries most of the
-study's quantitative weight, and nothing about it depends on the participant count. Weight
-effort there over anything that only improves the four participant sessions.
+Two things need a person, not a build session, before the corpus or the participant sessions
+can actually run: the **routing pilot** (external work item 2) and the **task prompts**
+(external work item 6, just above). Item 6 in the build order — rebuild/alignment/per-object
+poses — has no open questions and can be built without either.

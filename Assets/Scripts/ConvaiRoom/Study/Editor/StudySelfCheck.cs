@@ -46,6 +46,10 @@ namespace ConvaiRoomEditor
             CheckQuantisation();
             CheckObservationReplay();
             CheckTrialSeed();
+            CheckPlanScoringWords();
+            CheckPlanScoringRoomMentions();
+            CheckPlanScoringPercentile();
+            CheckPlanScoringPlaceAgreement();
 
             var message = $"[StudySelfCheck] {_passed} passed, {_failed} failed.";
 
@@ -374,6 +378,149 @@ namespace ConvaiRoomEditor
             {
                 return false;
             }
+        }
+
+        // -----------------------------------------------------------------
+        // The offline plan harness's arithmetic. Every one of these is pure -- see the
+        // remark on PlanScoring for why that is the point -- so each is checked against an
+        // answer worked out on paper rather than against another run of the same code.
+        // -----------------------------------------------------------------
+
+        private static void CheckPlanScoringWords()
+        {
+            Assert("words: matches whole words, not fragments",
+                   PlanScoring.ContainsWord("this chair looks comfortable", "table") == false);
+
+            // The exact counterexample PlanScoring's own remark gives: "table" is a literal
+            // substring of "comfortable" (com-for-TABLE), which is precisely what whole-word
+            // matching exists to reject.
+            Assert("words: 'table' really is inside 'comfortable'",
+                   "comfortable".IndexOf("table", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            Assert("words: matches at the end of a sentence",
+                   PlanScoring.ContainsWord("put it on the table", "table"));
+
+            Assert("words: does not match 'tv' inside 'tvs'",
+                   PlanScoring.ContainsWord("there are two tvs here", "tv") == false);
+
+            Assert("words: does match a bare 'tv'",
+                   PlanScoring.ContainsWord("turn on the tv please", "tv"));
+
+            Assert("words: case-insensitive",
+                   PlanScoring.ContainsWord("Clear the TABLE please", "table"));
+
+            var steps = new List<PlanStepRecord>
+            {
+                new PlanStepRecord { text = "Clear the table." },
+                new PlanStepRecord { text = "Put the mugs on the tray." },
+                new PlanStepRecord { text = "" }
+            };
+
+            // (3 words + 6 words) / 2 counted steps. The blank step must not count toward the
+            // divisor, or a plan padded with empty steps would read as more concise than it is.
+            var wps = PlanScoring.WordsPerStep(steps);
+            Assert("words: words-per-step averages only non-empty steps",
+                   Mathf.Abs(wps - 4.5f) < 1e-4f, $"got {wps}");
+
+            Assert("words: words-per-step is zero for an empty plan",
+                   PlanScoring.WordsPerStep(new List<PlanStepRecord>()) == 0f);
+        }
+
+        private static void CheckPlanScoringRoomMentions()
+        {
+            var vocab = new List<string> { "chair by the couch", "kitchen counter" };
+
+            var steps = new List<PlanStepRecord>
+            {
+                // Matches the full multi-word name.
+                new PlanStepRecord { text = "Put the mugs on the kitchen counter." },
+
+                // Matches the LEADING WORD of a multi-word name -- "chair by the couch" is
+                // spoken about as "the chair" far more often than by its whole invented name,
+                // and that is specifically what the leading-word needle is for.
+                new PlanStepRecord { text = "Sit in the chair for a while." },
+
+                // Names nothing in the room at all.
+                new PlanStepRecord { text = "Go get comfortable." },
+
+                new PlanStepRecord { text = "Clear the table." }
+            };
+
+            Assert("mentions: counts the full-phrase and leading-word matches, not the misses",
+                   PlanScoring.RoomMentions(steps, vocab) == 2,
+                   $"got {PlanScoring.RoomMentions(steps, vocab)}");
+
+            Assert("mentions: zero against an empty vocabulary",
+                   PlanScoring.RoomMentions(steps, new List<string>()) == 0);
+        }
+
+        private static void CheckPlanScoringPercentile()
+        {
+            var values = new List<float> { 30f, 10f, 50f, 20f, 40f };
+
+            // Nearest-rank over {10,20,30,40,50}: p50 is the middle value, p0 and p100 are the
+            // ends. Worked out by hand rather than against a stats library, since the whole
+            // point of nearest-rank here is that it needs no interpolation to reason about.
+            Assert("percentile: p50 is the median",
+                   Mathf.Approximately(PlanScoring.Percentile(values, 0.5f), 30f));
+            Assert("percentile: p0 is the minimum",
+                   Mathf.Approximately(PlanScoring.Percentile(values, 0f), 10f));
+            Assert("percentile: p100 is the maximum",
+                   Mathf.Approximately(PlanScoring.Percentile(values, 1f), 50f));
+            Assert("percentile: p90 of five values",
+                   Mathf.Approximately(PlanScoring.Percentile(values, 0.9f), 50f));
+
+            Assert("percentile: does not reorder the caller's list",
+                   values[0] == 30f && values[1] == 10f && values[2] == 50f,
+                   string.Join(",", values));
+
+            Assert("percentile: empty list is zero", PlanScoring.Percentile(new List<float>(), 0.5f) == 0f);
+        }
+
+        private static void CheckPlanScoringPlaceAgreement()
+        {
+            List<PlanStepRecord> Steps(params string[] wheres)
+            {
+                var list = new List<PlanStepRecord>();
+                foreach (var w in wheres) list.Add(new PlanStepRecord { where = w });
+                return list;
+            }
+
+            Assert("agreement: two empty ground sets agree completely",
+                   PlanScoring.PlaceAgreement(Steps(""), Steps("")) == 1f);
+
+            Assert("agreement: identical sets agree completely, order and duplicates ignored",
+                   PlanScoring.PlaceAgreement(Steps("table", "sink"), Steps("sink", "table", "sink")) == 1f);
+
+            Assert("agreement: case-insensitive",
+                   PlanScoring.PlaceAgreement(Steps("Table"), Steps("table")) == 1f);
+
+            Assert("agreement: disjoint sets agree not at all",
+                   PlanScoring.PlaceAgreement(Steps("table"), Steps("counter")) == 0f);
+
+            // {table,sink} vs {table,counter}: shared=1, union=3 -> 1/3. The one case here that
+            // is not 0 or 1, and the one most likely to have an off-by-one in the union term.
+            var partial = PlanScoring.PlaceAgreement(Steps("table", "sink"), Steps("table", "counter"));
+            Assert("agreement: partial overlap is shared/union",
+                   Mathf.Abs(partial - 1f / 3f) < 1e-4f, $"got {partial}");
+
+            var repeats = new List<PlanRecord>
+            {
+                new PlanRecord { steps = Steps("table") },
+                new PlanRecord { steps = Steps("table") },
+                new PlanRecord { steps = Steps("counter") }
+            };
+
+            // Pairs: (1,2)=1, (1,3)=0, (2,3)=0 -> mean 1/3. Every pair rather than "compare to
+            // the first" is what this is checking: comparing only to repeats[0] would also give
+            // 1/3 here by coincidence, so the real test is that THREE pairs were considered.
+            var mean = PlanScoring.MeanPlaceAgreement(repeats);
+            Assert("agreement: mean is over every pair, not just the first",
+                   Mathf.Abs(mean - 1f / 3f) < 1e-4f, $"got {mean}");
+
+            Assert("agreement: a single repeat trivially agrees with itself",
+                   PlanScoring.MeanPlaceAgreement(new List<PlanRecord> { new PlanRecord() }) == 1f);
+            Assert("agreement: null repeats is the same trivial case", PlanScoring.MeanPlaceAgreement(null) == 1f);
         }
 
         private static void CheckTruthRoundTrip()
