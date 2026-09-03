@@ -1,19 +1,26 @@
 # Handoff — study instrumentation, build order complete
 
-Read this first. **All six items on the original build order are done.** What is left is not
-code: a routing pilot, real task-prompt text, and committing item 6. See "External work" and
-"Open decisions" at the bottom for exactly what remains and who it belongs to.
+Read this first. **All six items on the original build order are done, the scene is wired, and
+the two self-check bugs are fixed.** Nothing left is code: the `Look At` action, a routing pilot,
+six scans with ground truth, and real task-prompt text. See "External work" and "Open decisions"
+at the bottom for exactly what remains and who it belongs to.
 
 ## Where things stand
 
-Branch **`user-test-metrics`** (off `refinement`). Items 1–6 are done and compile clean.
-Items 1–2 are committed (`f118cc1`), item 3 (`8e35b17`), item 4 (`4d1f981`), item 5 (`e077bc8`);
-item 6 is uncommitted in the tree.
+Branch **`user-test-metrics`** (off `refinement`). Items 1–6 are done, committed and compile
+clean: items 1–2 (`f118cc1`), item 3 (`8e35b17`), item 4 (`4d1f981`), item 5 (`e077bc8`),
+item 6 (`bacc36b`).
 
-**One background task is pending**, spawned in an earlier session: `task_9895b05d`, two small
-pre-existing bugs found while verifying item 5 live (a `RoomTruthMarker.ParseLabels` empty-input
-edge case, and a floating-point boundary in a self-check's own tolerance). Neither blocks
-anything here; see the task or the "Panel"/self-check facts below for exact file:line detail.
+**Both pre-existing self-check bugs are fixed** (`8277c05`) — the two filed as `task_9895b05d`
+while verifying item 5. `RoomTruthMarker.ParseLabels` returned before it appended
+`OutOfVocabulary`, so an empty or missing labels asset left the marker with nothing at all to
+cycle through rather than the one entry it should always offer. `CheckQuantisation`'s 0.5 mm
+tolerance was failing on float32 accumulation, not on a real quantisation defect: the
+multiply/round/divide/subtract chain is float32 throughout and `1.2345f` round-trips about
+8e-8 m past the literal `0.0005f`. **The self-check is now 136/136.**
+
+**The scene is wired** (`c265e6c`). All six components are on `Room Scan`; see "External work"
+below, which is now down to the dashboard action, the headset work and the task prompts.
 
 **Decisions taken (2026-09-03), do not reopen:**
 
@@ -160,7 +167,8 @@ Two facts worth knowing before touching this again:
   self-check: 117/119 passed; the 2 failures are pre-existing, in code nobody touched this
   session (`RoomTruthMarker.ParseLabels` empty-input edge case, and a floating-point boundary
   in `CheckQuantisation`'s own tolerance). Flagged as a separate task
-  (`task_9895b05d`), not fixed — out of this item's scope. Also opened the harness window
+  (`task_9895b05d`), not fixed then — **both are fixed now** (`8277c05`, see the top of this
+  file); the count that item 6 quotes below predates the fix. Also opened the harness window
   itself via `execute_menu_item`: zero errors/warnings on a real `OnGUI` pass. Did **not**
   press Start — that fires real network requests and costs real API/Ollama time, not something
   to trigger unattended.
@@ -205,9 +213,10 @@ Design notes:
 - **Verified live**: self-check went from 119 to 136 assertions (17 new — a full round trip at
   both extremes, "everything true" and "everything false", since JsonUtility's silent-failure
   mode reads identically to a legitimate `false`), all new ones passing; same 2 pre-existing
-  unrelated failures as item 5 (`task_9895b05d`). Did not wire it into the live scene to
-  smoke-test `Awake`/`OnEnable` — that is exactly the kind of scene edit the "External work"
-  AddComponent list below exists to hand to a person rather than do unprompted.
+  unrelated failures as item 5 — **since fixed** (`8277c05`), so the self-check now reads
+  136/136. It is **now wired into the live scene** (`c265e6c`), on `Room Scan` alongside
+  `RoomScanRebuilder`; `Awake`/`OnEnable` have still only been exercised by the Editor loading
+  the scene, not by a run, since Play Mode here would open real Convai and network activity.
 
 **Dropped:** wrong-button-presses-per-stage. The flow is barely exercised in a 16-minute session.
 
@@ -298,6 +307,10 @@ These cost real time to work out. They are verified against the current code.
 **Plan stepping**
 - `RoomTaskPlan.TryMove` / `TryGoTo` returning **false does not call `Publish()`**, so
   `OnChanged` never fires — "already at the last step" is invisible to every listener.
+  Read this as a *gap*, not a bug to patch in place: the no-op branch
+  (`RoomTaskPlan.cs:196`) leaves `CurrentIndex` untouched, and `OnChanged` promises to fire
+  when the step *changes*. See "Open decisions" — recording refused advances wants its own
+  signal, not a `Publish()` bolted onto the false path.
 
 ## House conventions
 
@@ -350,9 +363,11 @@ staged: `Packages/manifest.json`, `.vscode/*`, `Unity-PassthroughCameraApiSample
 Two remotes: `origin` (useSplash fork) and `upstream` (oculus-samples) — always pass
 `--repo useSplash/...` to `gh`.
 
-Items 1–5 are committed (`f118cc1`, `8e35b17`, `4d1f981`, `e077bc8`; see the top of this file).
-Item 6 is uncommitted — commit it. That closes out the original build order; nothing after this
-needs a new commit unless the external-work items below turn into code.
+Everything is committed: items 1–6 (`f118cc1`, `8e35b17`, `4d1f981`, `e077bc8`, `bacc36b`), the
+two self-check fixes (`8277c05`), and the scene wiring (`c265e6c`). `Assets/Scenes/Room Flow.unity`
+is a normal tracked file and the wiring commit is a clean 128-line addition to it — it is not on
+the never-stage list above. Nothing further needs a commit unless the external-work items below
+turn into code.
 
 ## External work — not code, start it in parallel
 
@@ -362,16 +377,20 @@ needs a new commit unless the external-work items below turn into code.
 2. **Routing pilot.** Risk: "the chair by the couch" routes to the existing Move To action and
    walks her across the room. Test before building the block around it.
 3. ~~Verify `TranscriptSystemEnabled`~~ — **done, it is on**, and nothing depends on it anyway.
-4. **Five `AddComponent`s** on the room-manager GameObject (the one with `ObjectScanRecorder`):
-   `StudySessionRecorder`, `RoomTruthMarker` (+ drag in `SentisYoloClasses.txt`),
-   `ScanObservationLog`, `ReferenceTrialRunner`, `RoomAttentionExecutor`. All five exist.
+4. ~~**Five `AddComponent`s** on the room-manager GameObject~~ — **DONE** (`c265e6c`).
+   `StudySessionRecorder`, `RoomTruthMarker`, `ScanObservationLog`, `ReferenceTrialRunner` and
+   `RoomAttentionExecutor` are on `Room Scan` (the object carrying `ObjectScanRecorder`), and
+   `RoomTruthMarker.labelsAsset` is set to the shipped `SentisYoloClasses.txt`. Every
+   self-resolving reference field reads `null` in the Inspector and is meant to — they resolve
+   through `FindAnyObjectByType` in `Awake` at runtime, not at edit time.
    The turn counter and the speech watch are deliberately **not** components — no Inspector
    surface, no scene presence — so `StudySessionRecorder` owns and ticks them and this list
    stayed at five.
 
-   `RoomAttentionExecutor` must also be set as the executor on the `Look At` action in the
-   Convai dashboard, or naming resolves to nothing and the block runs pointing-only (it says
-   so, in the console and in `referenceBlock.unavailable`).
+   **Still outstanding:** `RoomAttentionExecutor` must be set as the executor on the `Look At`
+   action in the Convai dashboard, or naming resolves to nothing and the block runs
+   pointing-only (it says so, in the console and in `referenceBlock.unavailable`). The
+   component now exists in the scene, so it is selectable there.
 
 5. **A new `.cs` file has no `.meta` until Unity focuses/refreshes.** True for the instant right
    after `Write`, not a standing problem — confirmed this session that UnityMCP's
@@ -381,20 +400,39 @@ needs a new commit unless the external-work items below turn into code.
 6. **Six household task prompts, for item 5's harness.** Nobody has written these down where
    code could find them — see item 5's notes above. Whoever runs the corpus sweep needs to
    supply real task text; this is a content decision, not a code one.
-7. **One `AddComponent`, separately from the list above.** `RoomRebuildLog` goes wherever
-   `RoomScanRebuilder` already lives (self-resolved via `FindAnyObjectByType`, so any GameObject
-   works) — not the room-manager object the six-component list is about, and not gated behind a
-   session. It is inert on its own; nothing depends on it being present.
+7. ~~**One `AddComponent`, separately from the list above.**~~ — **DONE** (`c265e6c`), and the
+   claim this item used to make was wrong. `RoomRebuildLog` goes wherever `RoomScanRebuilder`
+   already lives; that was written without looking at the live hierarchy, where
+   `RoomScanRebuilder` sits on **`Room Scan` itself**, alongside `ObjectScanRecorder` and a mix
+   of `RoomScan.*` and `ConvaiRoom.*` components. There was no separate object to put it on and
+   no layering rule being crossed by adding it there — the namespace split is about what the
+   code may reference, not about which GameObject hosts it. Still self-resolved via
+   `FindAnyObjectByType` and still not gated behind a session.
 
 ## Open decisions
 
-None outstanding for the code. All six build-order items are done; both of revision 3's protocol
-decisions are settled at the top of this file, and protocol **revision 4** in the artifact
-reflects them.
+All six build-order items are done, the two self-check bugs are fixed, and the scene is wired.
+Both of revision 3's protocol decisions are settled at the top of this file, and protocol
+**revision 4** in the artifact reflects them.
 
-Two things need a person, not a build session, before the corpus or the participant sessions can
-actually run: the **routing pilot** (external work item 2) and the **task prompts** (external
-work item 6). Neither is a coding task, and nothing left in this repo is blocked on more code
-being written against the original spec — the next session's job is most likely running one of
-the two harnesses, fixing `task_9895b05d`, or responding to whatever the routing pilot or a real
-participant slot turns up.
+**Nothing left in this repo is doable without a person.** Everything outstanding is gated on
+one of four things, none of them code:
+
+1. **The `Look At` action** in the Convai dashboard (external work 1), with
+   `RoomAttentionExecutor` as its executor. Until it exists the reference block runs
+   pointing-only, by design and out loud.
+2. **The routing pilot** (external work 2), which needs 1 first.
+3. **Six research scans + ground truth per room.** `<persistentDataPath>/study/` was empty as of
+   2026-09-03 — no scans, no `truth_R*.json`, no rebuild logs. The corpus harness has nothing
+   to read until this happens.
+4. **Six household task prompts** (external work 6). Still nobody's written them down, and they
+   are still not to be invented in code.
+
+**One real decision is open, and it is not a bug.** "Steps advanced" is still unrecorded (see
+item 4). `RoomTaskPlan.TryMove` returns `false` without `Publish()` when the move is a no-op,
+which the "Plan stepping" note below calls a bug — but `OnChanged` documents itself as firing
+when the plan or current step *changes*, and a refused advance changes nothing. Publishing there
+would break that contract to carry an interaction event. If the study wants "the participant
+tried to advance past the end", that wants its own signal or caller-side recording in
+`RoomTaskStepExecutor`/the panel — a design choice on shipped, participant-facing code, which is
+why two sessions have now declined to make it unprompted.
