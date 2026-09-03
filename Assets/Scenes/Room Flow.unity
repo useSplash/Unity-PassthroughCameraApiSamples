@@ -7863,6 +7863,12 @@ GameObject:
   - component: {fileID: 1339185277}
   - component: {fileID: 1339185276}
   - component: {fileID: 1339185275}
+  - component: {fileID: 1339185283}
+  - component: {fileID: 1339185282}
+  - component: {fileID: 1339185281}
+  - component: {fileID: 1339185280}
+  - component: {fileID: 1339185279}
+  - component: {fileID: 1339185278}
   m_Layer: 0
   m_Name: Room Scan
   m_TagString: Untagged
@@ -7914,6 +7920,8 @@ MonoBehaviour:
   extentSampleCount: 64
   maxRaycastDistance: 6
   maxObjectSize: 3
+  recordObservations: 0
+  observationLog: {fileID: 0}
 --- !u!114 &1339185260
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8189,6 +8197,126 @@ MonoBehaviour:
   effort: 
   maxTokens: 8000
   timeoutSeconds: 40
+  verboseLogging: 1
+--- !u!114 &1339185278
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95919c7d37f637c46860db7d039815a6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomRebuildLog
+  rebuilder: {fileID: 0}
+  verboseLogging: 0
+--- !u!114 &1339185279
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac29871690744b346a8474997e038e86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomAttentionExecutor
+  context: {fileID: 0}
+  voice: {fileID: 0}
+  acknowledgement: Got it.
+  verboseLogging: 1
+--- !u!114 &1339185280
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 13ea2d880073ab6458433f365cffa36e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ReferenceTrialRunner
+  rebuilder: {fileID: 0}
+  pointer: {fileID: 0}
+  attention: {fileID: 0}
+  context: {fileID: 0}
+  reps: 3
+  maxDistractors: 4
+  cueSeconds: 2
+  timeoutSeconds: 60
+  betweenSeconds: 1.5
+  namingAttemptCap: 2
+  cueColor: {r: 0.3, g: 0.9, b: 1, a: 1}
+  verboseLogging: 1
+--- !u!114 &1339185281
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 01ecba07fa0e3a24d99a2cf4998b8ee7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RoomScan.ScanObservationLog
+  capacity: 4096
+  maxRecords: 400000
+--- !u!114 &1339185282
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7733ef8a2f3361e49bdc3a2a78412b58, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomTruthMarker
+  recorder: {fileID: 0}
+  raycastManager: {fileID: 0}
+  labelsAsset: {fileID: 4900000, guid: c01c64149c7930b45a76559caabd5c78, type: 3}
+  markingHand: 1
+  captureButton: 8192
+  raycastButton: 16384
+  tipOffset: 0.04
+  maxRaycastDistance: 6
+  verboseLogging: 1
+--- !u!114 &1339185283
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1339185257}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f55678abb3f6a374e87c7e3e3b1e8b27, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.StudySessionRecorder
+  panel: {fileID: 0}
+  recorder: {fileID: 0}
+  truthMarker: {fileID: 0}
+  observationLog: {fileID: 0}
+  trials: {fileID: 0}
+  planner: {fileID: 0}
+  participantCount: 16
+  roomLabels:
+  - R1
+  - R2
+  - R3
+  - R4
+  - R5
+  - R6
+  convaiBudget: 40
+  enforceBudget: 0
+  clusterPollInterval: 0.25
+  diskPollInterval: 1
   verboseLogging: 1
 --- !u!1 &1382633687
 GameObject:
