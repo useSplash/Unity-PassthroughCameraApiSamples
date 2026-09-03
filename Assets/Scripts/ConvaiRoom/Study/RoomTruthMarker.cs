@@ -158,12 +158,16 @@ namespace ConvaiRoom
         {
             var labels = new List<string>();
 
-            if (string.IsNullOrEmpty(text)) return labels;
-
-            foreach (var raw in text.Split('\n'))
+            // The early-out only skips the split/trim below -- it must not skip the
+            // OutOfVocabulary add past it, or an empty/missing labels asset leaves the marker
+            // with zero cycle entries instead of just the one it should always offer.
+            if (!string.IsNullOrEmpty(text))
             {
-                var label = raw.Trim();
-                if (label.Length > 0) labels.Add(label);
+                foreach (var raw in text.Split('\n'))
+                {
+                    var label = raw.Trim();
+                    if (label.Length > 0) labels.Add(label);
+                }
             }
 
             // Always last, so cycling through the vocabulary reaches it without it sitting in

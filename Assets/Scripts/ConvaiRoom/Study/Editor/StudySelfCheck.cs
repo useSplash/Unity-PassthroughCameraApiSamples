@@ -873,7 +873,15 @@ namespace ConvaiRoomEditor
                 worst = Mathf.Max(worst, Mathf.Abs(back - metres));
             }
 
-            Assert("quantisation: within half a millimetre", worst <= 0.0005f, $"worst {worst:F6} m");
+            // The exact bound is 0.5 mm (half of a 1 mm step), but the multiply/round/divide/
+            // subtract chain above is float32 throughout, so the computed worst case can land a
+            // few float32 ULPs past the literal 0.0005f (observed: ~8e-8 m, on 1.2345f) even
+            // though quantisation itself is correct. FloatSlop absorbs that accumulation without
+            // loosening the guarantee being tested -- it is three orders below the bound, not a
+            // wider bound.
+            const float FloatSlop = 1e-6f;
+            Assert("quantisation: within half a millimetre", worst <= 0.0005f + FloatSlop,
+                   $"worst {worst:F8} m");
         }
 
         // -----------------------------------------------------------------
