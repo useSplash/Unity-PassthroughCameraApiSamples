@@ -50,6 +50,8 @@ namespace ConvaiRoomEditor
             CheckPlanScoringRoomMentions();
             CheckPlanScoringPercentile();
             CheckPlanScoringPlaceAgreement();
+            CheckRebuildLogRoundTrip();
+            CheckRebuildLogDiskRoundTrip();
 
             var message = $"[StudySelfCheck] {_passed} passed, {_failed} failed.";
 
@@ -521,6 +523,125 @@ namespace ConvaiRoomEditor
             Assert("agreement: a single repeat trivially agrees with itself",
                    PlanScoring.MeanPlaceAgreement(new List<PlanRecord> { new PlanRecord() }) == 1f);
             Assert("agreement: null repeats is the same trivial case", PlanScoring.MeanPlaceAgreement(null) == 1f);
+        }
+
+        /// <summary>
+        /// The rebuild log's own JsonUtility round trip -- the check that matters most for it,
+        /// same reasoning as everywhere else in this file. Two entries deliberately at opposite
+        /// extremes: one aligned and anchored, one neither, so a bug that only shows up on the
+        /// "everything true" or "everything false" path cannot hide in the other entry.
+        /// </summary>
+        private static void CheckRebuildLogRoundTrip()
+        {
+            var file = new RoomRebuildLogFile();
+
+            var aligned = new RoomRebuildEntry
+            {
+                rebuiltUtc = DateTime.UtcNow.ToString("o"),
+                scanCapturedUtc = "2026-09-01T10:00:00Z",
+                savedOriginAnchorUuid = "anchor-old",
+                currentAnchorUuid = "anchor-new",
+                anchored = true,
+                alignment = new RebuildAlignmentEntry
+                {
+                    applied = true,
+                    yawDegrees = 87.5f,
+                    translation = new Vec3(new Vector3(0.4f, 0f, -1.1f)),
+                    error = 0.08f,
+                    margin = 0.02f,
+                    ambiguous = true,
+                    summary = "yaw 87.5deg, offset 1.17 m, error 0.08 m over 4 walls"
+                }
+            };
+            aligned.poses.Add(new RebuiltPoseEntry
+            {
+                id = "obj_004", label = "chair",
+                worldPosition = new Vec3(new Vector3(1f, 0.5f, 2f)),
+                worldRotation = new Quat(Quaternion.Euler(0f, 45f, 0f))
+            });
+            file.rebuilds.Add(aligned);
+
+            // The opposite extreme: unanchored, unaligned, no poses at all. Every bool here
+            // defaults to false, which is exactly the value JsonUtility would ALSO produce for
+            // a field that silently failed to serialise -- so this entry is the one that would
+            // stay quiet about a bug the first entry could not catch.
+            file.rebuilds.Add(new RoomRebuildEntry
+            {
+                rebuiltUtc = DateTime.UtcNow.ToString("o"),
+                scanCapturedUtc = "2026-09-01T11:00:00Z",
+                anchored = false,
+                alignment = new RebuildAlignmentEntry { applied = false, summary = "no MRUK room" }
+            });
+
+            var json = JsonUtility.ToJson(file, true);
+            var back = JsonUtility.FromJson<RoomRebuildLogFile>(json);
+
+            Assert("rebuild: survives a round trip", back != null);
+            if (back == null) return;
+
+            Assert("rebuild: both entries kept", back.rebuilds.Count == 2);
+            if (back.rebuilds.Count < 2) return;
+
+            Assert("rebuild: scan id kept", back.rebuilds[0].scanCapturedUtc == "2026-09-01T10:00:00Z");
+            Assert("rebuild: anchor uuids kept apart",
+                   back.rebuilds[0].savedOriginAnchorUuid == "anchor-old" &&
+                   back.rebuilds[0].currentAnchorUuid == "anchor-new");
+
+            Assert("rebuild: anchored-true survives", back.rebuilds[0].anchored);
+            Assert("rebuild: anchored-false survives", !back.rebuilds[1].anchored);
+
+            Assert("rebuild: alignment applied-true survives", back.rebuilds[0].alignment.applied);
+            Assert("rebuild: alignment applied-false survives", !back.rebuilds[1].alignment.applied);
+            Assert("rebuild: ambiguous-true survives", back.rebuilds[0].alignment.ambiguous);
+
+            Assert("rebuild: yaw and translation kept",
+                   Mathf.Approximately(back.rebuilds[0].alignment.yawDegrees, 87.5f) &&
+                   Mathf.Abs(back.rebuilds[0].alignment.translation.ToVector3().z + 1.1f) < 1e-4f);
+
+            Assert("rebuild: poses kept for the entry that has them",
+                   back.rebuilds[0].poses.Count == 1 && back.rebuilds[0].poses[0].id == "obj_004");
+            Assert("rebuild: pose world rotation kept",
+                   Mathf.Abs(back.rebuilds[0].poses[0].worldRotation.ToQuaternion().eulerAngles.y - 45f) < 1e-2f);
+
+            Assert("rebuild: empty pose list survives as empty, not null",
+                   back.rebuilds[1].poses != null && back.rebuilds[1].poses.Count == 0);
+        }
+
+        private static void CheckRebuildLogDiskRoundTrip()
+        {
+            var file = new RoomRebuildLogFile();
+            file.rebuilds.Add(new RoomRebuildEntry
+            {
+                rebuiltUtc = DateTime.UtcNow.ToString("o"),
+                scanCapturedUtc = "self-check",
+                anchored = true,
+                alignment = new RebuildAlignmentEntry { applied = true, summary = "self-check" }
+            });
+
+            var path = RoomRebuildLogIO.PathForStem("selfcheck_rebuilds");
+
+            try
+            {
+                RoomRebuildLogIO.Save(file, path);
+                Assert("rebuild disk: file written", File.Exists(path), path);
+
+                var back = RoomRebuildLogIO.Load(path);
+
+                Assert("rebuild disk: reads back", back != null);
+                Assert("rebuild disk: entry survives",
+                       back != null && back.rebuilds.Count == 1 &&
+                       back.rebuilds[0].scanCapturedUtc == "self-check");
+                Assert("rebuild disk: capturedUtc stamped at write",
+                       back != null && !string.IsNullOrEmpty(back.capturedUtc));
+            }
+            catch (Exception ex)
+            {
+                Assert("rebuild disk: round trip without throwing", false, ex.Message);
+            }
+            finally
+            {
+                try { if (File.Exists(path)) File.Delete(path); } catch { /* scratch */ }
+            }
         }
 
         private static void CheckTruthRoundTrip()

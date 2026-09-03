@@ -346,6 +346,33 @@ this is the part that has to be provably right.
 
 ---
 
+## The rebuild log
+
+Serves the **researcher scan harness** — the six rooms getting re-scanned and re-set-up across
+visits — not the participant session. Add `RoomRebuildLog` wherever `RoomScanRebuilder` already
+lives; it self-resolves and needs no Inspector wiring.
+
+**Always on, no arming needed**, unlike the observation log. It writes down geometry and an
+anchor UUID, never speech, and a rebuild happens a handful of times an hour at most — there is
+no cost here that would justify gating it behind a session the way `ScanObservationLog` is.
+
+Every `RoomScanRebuilder.OnRebuilt` gets one row: the **whole** wall-alignment result
+(`RoomAlignment`'s every field, not just the headline four — `Applied` and `Translation` matter
+just as much for deciding whether a rebuild can be trusted), and the **world pose actually
+applied** to every object, read straight off each proxy's own transform rather than recomputed.
+
+This is what lets you answer *"is the wall-fit correction actually holding up across a Space
+Setup re-run"* from the data instead of from whoever happened to be watching the console when it
+happened. `anchored: false` is the one to watch for — it means the room had no MRUK anchor at
+all and every pose in that row is in raw world space, positioned relative to wherever the app
+happened to start.
+
+Output: `<persistentDataPath>/study/rebuilds_<timestamp>.rebuilds.json`, one file per app run,
+rewritten whole on every rebuild so it is always a complete, parseable file rather than a
+fragment.
+
+---
+
 ## The extent ablation
 
 The scanner sizes an object by taking per-axis percentiles over a rolling window of
@@ -438,6 +465,10 @@ false`).
   counterexample in its own remark (`"table"` really is a substring of `"comfortable"`),
   words-per-step ignoring blank steps, nearest-rank percentiles including that the caller's list
   is not reordered, and place agreement's partial-overlap and mean-of-every-pair cases
+- **the rebuild log's round trip**, at both extremes deliberately: one entry aligned, anchored,
+  ambiguous and carrying a pose; one with every bool false and an empty pose list. JsonUtility's
+  silent-failure mode also reads as `false` and `[]`, so the all-false entry is the one that
+  would stay quiet about a bug the other entry could never catch
 - **the ablation replay**, against two synthetic logs with answers worked out on paper: one
   where the percentile must trim an outlier the union keeps (0.5 m vs 2.0 m), and one where a
   merge across a 90° frame must land at 1.5 m. Both were confirmed independently before being

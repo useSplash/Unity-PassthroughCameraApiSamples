@@ -1,16 +1,16 @@
-# Handoff — study instrumentation, phase 6
+# Handoff — study instrumentation, build order complete
 
-Read this first, then start at **Build order, item 6** — the last one on the original list.
-Items 1–5 are done, and item 5 (the one that carries the study's actual statistical weight) is
-verified against a live Unity Editor, not just a `dotnet` compile check.
+Read this first. **All six items on the original build order are done.** What is left is not
+code: a routing pilot, real task-prompt text, and committing item 6. See "External work" and
+"Open decisions" at the bottom for exactly what remains and who it belongs to.
 
 ## Where things stand
 
-Branch **`user-test-metrics`** (off `refinement`). Items 1–5 are done and compile clean.
-Items 1–2 are committed (`f118cc1`), item 3 (`8e35b17`), item 4 (`4d1f981`); item 5 is
-uncommitted in the tree.
+Branch **`user-test-metrics`** (off `refinement`). Items 1–6 are done and compile clean.
+Items 1–2 are committed (`f118cc1`), item 3 (`8e35b17`), item 4 (`4d1f981`), item 5 (`e077bc8`);
+item 6 is uncommitted in the tree.
 
-**One background task is pending**, spawned this session: `task_9895b05d`, two small
+**One background task is pending**, spawned in an earlier session: `task_9895b05d`, two small
 pre-existing bugs found while verifying item 5 live (a `RoomTruthMarker.ParseLabels` empty-input
 edge case, and a floating-point boundary in a self-check's own tolerance). Neither blocks
 anything here; see the task or the "Panel"/self-check facts below for exact file:line detail.
@@ -64,6 +64,8 @@ Everything below is shaped by these. Do not design past them.
 | `Study/PlanScoring.cs` | Pure, self-checked corpus arithmetic |
 | `Study/Editor/PlanCorpusHarness.cs` | `Tools > Convai Room > Plan Corpus Harness` |
 | `Study/Editor/PlanCorpusReport.cs` | Summary / blind sheet / consistency export |
+| `RoomScan/Replay/RoomRebuildData.cs` | Rebuild-log DTOs + `RoomRebuildLogIO` |
+| `RoomScan/Replay/RoomRebuildLog.cs` | Listens to `OnRebuilt`; researcher-only, always on |
 
 Edits to existing files: `ConvaiRoomModePanel` gained `OnStageChanged`, `OnReported`, a
 public `Stage` enum, a study sub-mode branch in `LayOutActions`, and the study entry slot at
@@ -166,11 +168,46 @@ Two facts worth knowing before touching this again:
   exact message instead (`.summary.txt` lists every distinct string with a count) — a guessed
   taxonomy could misclassify an ambiguous failure, and the exact strings already exist for free.
 
-### 6. Rebuild / alignment / per-object poses
+### 6. Rebuild / alignment / per-object poses — **DONE**
 
-Subscribe to `RoomScanRebuilder.OnRebuilt`; record `Alignment` (`Error`, `Margin`,
-`Ambiguous`, `YawDegrees`) and per-object world poses keyed by scan id. Serves the
-researcher scan harness, not the participant session.
+`RoomScan/Replay/RoomRebuildLog.cs` (the listener) + `RoomRebuildData.cs` (DTOs + IO). Lives in
+`RoomScan/Replay/`, next to `RoomScanRebuilder`/`RoomScanAligner`, in namespace `RoomScan` —
+**not** `ConvaiRoom/Study` — matching `ScanObservationLog`'s own precedent: "RoomScan is the
+lower layer and nothing in it should have to know that ConvaiRoom exists." It writes into the
+same `study/` output folder anyway, as a repeated literal rather than a reference, same reason.
+
+Design notes:
+
+- **Records the whole `RoomAlignment` struct**, not just the four fields named above
+  (`Applied`, `Translation` and `Summary` too). It was already computed and sitting right there;
+  a partial copy would have been an arbitrary line to draw, and `Applied` is exactly as
+  load-bearing for trusting a rebuild's poses as `Error` is.
+- **"Scan id" reuses `scan.capturedUtc`**, the same proxy `ReferenceTrialRunner.ScanId()`
+  already established — there is no dedicated id field on `RoomScanFile`. Two definitions of
+  "scan identity" in one codebase is how a future join matches the wrong rows; this is
+  deliberately not a second one.
+- **Per-object poses are read off `RebuiltObject.Proxy.transform`**, not recomputed via
+  `RoomToWorld`. The proxy's actual transform is where `SpawnBox` really put it; recomputing
+  would be a second implementation that could quietly drift from the first if `SpawnBox` ever
+  changes.
+- **Also records `anchored`** (whether `source.Room != null`) — `RoomScanRebuilder.Rebuild()`
+  only warns about "RAW WORLD SPACE" to the console; without this field a researcher reading
+  the log later has no way to tell an untrustworthy rebuild from a good one.
+- **Always on, no session required**, unlike `ScanObservationLog`. Geometry and an anchor UUID
+  are not remotely sensitive, and a rebuild happens a handful of times an hour at most, so there
+  is no cost that would justify a gate. Re-serialises the whole file on every rebuild (matching
+  `StudySessionRecorder`, not `ScanObservationLog`'s CSV-append) — cheap at this volume, and it
+  means the file on disk is always complete and parseable.
+- **One file per app run**, stamped once on first activation, mirroring
+  `ObjectScanRecorder`'s own `scan_{timestamp}` convention for its no-session case.
+- **Skips a rebuild that spawned nothing** (`source.Scan == null` — `OnRebuilt` also fires on a
+  `Clear` with nothing loaded). Everything else is recorded, unanchored rebuilds included.
+- **Verified live**: self-check went from 119 to 136 assertions (17 new — a full round trip at
+  both extremes, "everything true" and "everything false", since JsonUtility's silent-failure
+  mode reads identically to a legitimate `false`), all new ones passing; same 2 pre-existing
+  unrelated failures as item 5 (`task_9895b05d`). Did not wire it into the live scene to
+  smoke-test `Awake`/`OnEnable` — that is exactly the kind of scene edit the "External work"
+  AddComponent list below exists to hand to a person rather than do unprompted.
 
 **Dropped:** wrong-button-presses-per-stage. The flow is barely exercised in a 16-minute session.
 
@@ -313,8 +350,9 @@ staged: `Packages/manifest.json`, `.vscode/*`, `Unity-PassthroughCameraApiSample
 Two remotes: `origin` (useSplash fork) and `upstream` (oculus-samples) — always pass
 `--repo useSplash/...` to `gh`.
 
-Items 1–4 are committed (`f118cc1`, `8e35b17`, `4d1f981`; see the top of this file). Item 5 is
-uncommitted — commit it before starting item 6, same reasoning as every item before it.
+Items 1–5 are committed (`f118cc1`, `8e35b17`, `4d1f981`, `e077bc8`; see the top of this file).
+Item 6 is uncommitted — commit it. That closes out the original build order; nothing after this
+needs a new commit unless the external-work items below turn into code.
 
 ## External work — not code, start it in parallel
 
@@ -343,13 +381,20 @@ uncommitted — commit it before starting item 6, same reasoning as every item b
 6. **Six household task prompts, for item 5's harness.** Nobody has written these down where
    code could find them — see item 5's notes above. Whoever runs the corpus sweep needs to
    supply real task text; this is a content decision, not a code one.
+7. **One `AddComponent`, separately from the list above.** `RoomRebuildLog` goes wherever
+   `RoomScanRebuilder` already lives (self-resolved via `FindAnyObjectByType`, so any GameObject
+   works) — not the room-manager object the six-component list is about, and not gated behind a
+   session. It is inert on its own; nothing depends on it being present.
 
 ## Open decisions
 
-None outstanding for the code. Both of revision 3's are settled at the top of this file, and
-protocol **revision 4** in the artifact reflects them.
+None outstanding for the code. All six build-order items are done; both of revision 3's protocol
+decisions are settled at the top of this file, and protocol **revision 4** in the artifact
+reflects them.
 
-Two things need a person, not a build session, before the corpus or the participant sessions
-can actually run: the **routing pilot** (external work item 2) and the **task prompts**
-(external work item 6, just above). Item 6 in the build order — rebuild/alignment/per-object
-poses — has no open questions and can be built without either.
+Two things need a person, not a build session, before the corpus or the participant sessions can
+actually run: the **routing pilot** (external work item 2) and the **task prompts** (external
+work item 6). Neither is a coding task, and nothing left in this repo is blocked on more code
+being written against the original spec — the next session's job is most likely running one of
+the two harnesses, fixing `task_9895b05d`, or responding to whatever the routing pilot or a real
+participant slot turns up.
