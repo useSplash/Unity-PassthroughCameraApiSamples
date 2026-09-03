@@ -59,8 +59,28 @@ namespace RoomScan
         [Tooltip("Discard a cluster if its box grows larger than this on any axis.")]
         public float maxObjectSize = 3f;
 
-        /// <summary>Floor on any box extent, so a cluster seen edge-on is still visible.</summary>
-        private const float MinBoxExtent = 0.05f;
+        [Header("Study instrumentation")]
+        [Tooltip("Write every detection to a log so the extent estimator can be compared " +
+                 "offline against the monotonic union it replaced.\n\nOFF, and it should stay " +
+                 "off for participant sessions. The comparison needs SCANS, not participants " +
+                 "-- a few researcher-driven scans answer it just as well, with none of the " +
+                 "risk of a disk write landing in the middle of the phase being measured.\n\n" +
+                 "Needs a ScanObservationLog in the scene; without one this does nothing.")]
+        public bool recordObservations;
+
+        [Tooltip("Left empty, this is found in the scene. Only used when Record Observations " +
+                 "is on -- every call into it is a no-op while its file is closed.")]
+        public ScanObservationLog observationLog;
+
+        /// <summary>
+        /// Floor on any box extent, so a cluster seen edge-on is still visible.
+        ///
+        /// Public because it is applied in <see cref="Describe"/>, AFTER the extent estimate,
+        /// so anything recomputing that estimate offline has to apply it too or it will not
+        /// reproduce the size that shipped. It only bites on thin objects -- a laptop lid, a
+        /// book -- which is exactly where a silent mismatch would be hardest to spot.
+        /// </summary>
+        public const float MinBoxExtent = 0.05f;
 
         // ------------------------------------------------------------------
 
@@ -186,8 +206,42 @@ namespace RoomScan
         private readonly List<Cluster> _mergeScratch = new List<Cluster>();
         private HashSet<string> _ignoredSet;
 
+        /// <summary>
+        /// The settings the extent comparison depends on, as one line for the log header.
+        ///
+        /// Lives here rather than in the log because these are the recorder's fields and it
+        /// is the thing that knows which of them matter. The runtime percentile sees only the
+        /// last extentSampleCount observations while an offline union sees all of them --
+        /// that asymmetry is the intervention being measured, so the numbers have to travel
+        /// with the data or the ablation is not reproducible.
+        /// </summary>
+        public string DescribeSettings() =>
+            $"percentile={extentPercentile:F2} samples={extentSampleCount} " +
+            $"minObs={minObservations} mergeRadius={mergeRadius:F2} " +
+            $"mergeOverlap={mergeOverlap:F2} maxObjectSize={maxObjectSize:F2} " +
+            $"minConfidence={minConfidence:F2}";
+
         private void Start()
         {
+            if (observationLog == null) observationLog = FindAnyObjectByType<ScanObservationLog>();
+
+            // Opened here only when nobody else has. StudySessionRecorder opens it against the
+            // session's own filename so the log sits beside the session it belongs to; this
+            // branch is for the researcher-driven scans that have no session at all, which is
+            // the workflow the extent ablation is actually meant to be run from.
+            if (recordObservations && observationLog != null && !observationLog.IsOpen)
+            {
+                observationLog.Open(
+                    ScanObservationLog.PathForStem($"scan_{DateTime.UtcNow:yyyyMMdd'T'HHmmss}Z"),
+                    DescribeSettings());
+            }
+            else if (recordObservations && observationLog == null)
+            {
+                Debug.LogWarning("[ObjectScanRecorder] Record Observations is on but there is no " +
+                                 "ScanObservationLog in the scene, so nothing is being recorded. " +
+                                 "Add one to this GameObject.");
+            }
+
             if (!EnvironmentRaycastManager.IsSupported)
                 Debug.LogError("[ObjectScanRecorder] Depth API unsupported on this device/OS.");
 
@@ -294,6 +348,14 @@ namespace RoomScan
                     FirstSeen = now
                 };
                 _clusters.Add(cluster);
+
+                // The frame has to be logged the moment it is fixed. Extents are measured in
+                // it and it is never changed afterwards, so without it every cluster-local
+                // box in the log is a set of numbers with no space to live in -- and the
+                // merge replay, which re-expresses one cluster's boxes in another's frame,
+                // needs both frames to do it.
+                observationLog?.RecordCluster(cluster.Id, cluster.Label,
+                                              cluster.Origin, cluster.Rotation);
             }
 
             // --- 5. Record this observation's extent in the CLUSTER's own frame ---
@@ -303,6 +365,12 @@ namespace RoomScan
             Accumulate(cluster.ToLocal(roomCenter), ref min, ref max);
             for (var i = 0; i < _roomCorners.Length; i++)
                 Accumulate(cluster.ToLocal(_roomCorners[i]), ref min, ref max);
+
+            // Before AddObservation, not after: that call is where the evidence starts being
+            // thrown away. It overwrites the oldest entry in a ring of extentSampleCount, so
+            // an observation logged afterwards could already be one the cluster no longer
+            // holds. This is the last moment the detection exists in full.
+            observationLog?.RecordObservation(cluster.Id, confidence, roomCenter, min, max);
 
             cluster.AddObservation(min, max, extentSampleCount);
             cluster.Observations++;
@@ -357,6 +425,14 @@ namespace RoomScan
             {
                 var view = Describe(c);
                 if (!view.Exportable) continue;
+
+                // This is the join, and without it the log is unusable. The line below
+                // renumbers the cluster as obj_000, obj_001 and drops the cluster id on the
+                // floor, so nothing in the exported file can be traced back to the
+                // observations that produced it. Recording the pairing here is what lets the
+                // offline tool say "this exported box came from these detections".
+                observationLog?.RecordExport(c.Id, index, view.Label, view.Observations,
+                                             view.RoomCenter, view.Size);
 
                 file.objects.Add(new ScannedObject
                 {
@@ -517,6 +593,14 @@ namespace RoomScan
                 var keep = other.Id < cluster.Id ? other : cluster;
                 var drop = ReferenceEquals(keep, other) ? cluster : other;
 
+                // Logged before the absorb, so the offline replay sees the merge at the same
+                // point in the stream that the runtime did. Order matters here more than
+                // anywhere else in this log: Absorb re-frames the dropped cluster's boxes
+                // into the survivor's frame, which INFLATES them, and it pushes the
+                // survivor's own older samples out of the ring. A replay that applied the
+                // merge a few observations late would diverge from what actually happened.
+                observationLog?.RecordMerge(keep.Id, drop.Id);
+
                 Absorb(keep, drop, extentSampleCount);
                 _clusters.Remove(drop);
                 cluster = keep;
@@ -660,10 +744,26 @@ namespace RoomScan
             return best;
         }
 
-        private Vector3 WorldToRoom(Vector3 world)
+        /// <summary>
+        /// Whether there is an MRUK room to be relative to.
+        ///
+        /// False means every coordinate below is raw world space, which does not survive a
+        /// recenter or a restart. Worth asking before recording anything that will be
+        /// compared against a scan taken at another time -- see RoomTruthMarker, which
+        /// refuses rather than measure into a frame that will not be there tomorrow.
+        /// </summary>
+        public bool HasRoom => _room != null;
+
+        /// <summary>
+        /// World -> room-local. Public for the same reason <see cref="RoomToWorld"/> is: the
+        /// pipeline has exactly one definition of "room space", and anything measuring into
+        /// it -- ground truth included -- has to come through here rather than write its own.
+        /// Two definitions that agree today are two definitions that drift.
+        /// </summary>
+        public Vector3 WorldToRoom(Vector3 world)
             => _room == null ? world : _room.transform.InverseTransformPoint(world);
 
-        private Quaternion WorldToRoom(Quaternion world)
+        public Quaternion WorldToRoom(Quaternion world)
             => _room == null ? world : Quaternion.Inverse(_room.transform.rotation) * world;
 
         /// <summary>

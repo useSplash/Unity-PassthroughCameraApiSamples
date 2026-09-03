@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using Convai.Runtime;
@@ -122,6 +123,62 @@ namespace ConvaiRoom
                 return $"{size}, containing {contents}";
             }
         }
+
+        /// <summary>
+        /// Finds the box she knows by this name, matching aliases as well as primary names.
+        ///
+        /// Aliases are the reason this exists. Every repeated object carries its number as an
+        /// alias -- "chair 2" alongside "chair by the couch" -- because the numbers are what the
+        /// panel and the logs show, and a name you can read but not say would be worse than the
+        /// spatial one. The Convai backend resolves those aliases; nothing in Unity did.
+        /// RoomTaskVocabulary.Contains compares Place.Name only, so a participant who said
+        /// "chair 2" got an answer from the character and no match at all on this side. Every
+        /// caller that needs to turn a spoken name back into an object had the same hole.
+        ///
+        /// Read off the ConvaiActionTarget components rather than from <see cref="_described"/>,
+        /// so this answers for exactly the set the backend was offered -- the aliases live on
+        /// the target and nowhere else, and a second copy of that mapping here is one that goes
+        /// stale the first time MakeWalkable changes.
+        ///
+        /// Case- and whitespace-insensitive: this matches against speech that has been through
+        /// a transcriber, not against an identifier.
+        /// </summary>
+        public bool TryResolve(string nameOrAlias, out GameObject proxy)
+        {
+            proxy = null;
+
+            if (string.IsNullOrWhiteSpace(nameOrAlias) || rebuilder == null) return false;
+
+            var wanted = nameOrAlias.Trim();
+
+            foreach (var entry in rebuilder.Rebuilt)
+            {
+                if (entry.Proxy == null) continue;
+                if (!entry.Proxy.TryGetComponent<ConvaiActionTarget>(out var target)) continue;
+
+                if (Matches(target.TargetName, wanted))
+                {
+                    proxy = entry.Proxy;
+                    return true;
+                }
+
+                if (target.Aliases == null) continue;
+
+                foreach (var alias in target.Aliases)
+                {
+                    if (!Matches(alias, wanted)) continue;
+
+                    proxy = entry.Proxy;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool Matches(string candidate, string wanted) =>
+            !string.IsNullOrEmpty(candidate) &&
+            string.Equals(candidate.Trim(), wanted, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>One scanned object as the character has been told about it.</summary>
         private readonly struct Described

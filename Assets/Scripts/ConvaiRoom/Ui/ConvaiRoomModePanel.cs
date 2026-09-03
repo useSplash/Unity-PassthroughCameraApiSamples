@@ -98,8 +98,12 @@ namespace ConvaiRoom
         /// a world-space modal is one more thing to find and aim at, and it would cover the
         /// readout that says what you are deciding about. Asking in place, in the same three
         /// button positions, leaves the counts and the scan-file line readable while you choose.
+        ///
+        /// Public only so <see cref="OnStageChanged"/> can name it in its signature. Nothing
+        /// outside this class sets a stage -- <see cref="EnterStage"/> is still the only thing
+        /// that moves it, and it is still private.
         /// </summary>
-        private enum Stage
+        public enum Stage
         {
             /// <summary>Nothing running. Scan a room, or load the one already saved.</summary>
             Home,
@@ -192,6 +196,33 @@ namespace ConvaiRoom
         [Tooltip("The task plan, when one is being worked through. Optional -- without one " +
                  "the plan block simply never appears and the three plan buttons say so.")]
         public RoomTaskPlan plan;
+
+        [Tooltip("Records a user-test session. Optional, and absent for an ordinary build -- " +
+                 "without one the study slot is simply not offered and the panel behaves " +
+                 "exactly as it did before the study code existed.")]
+        public StudySessionRecorder study;
+
+        /// <summary>
+        /// Raised after the flow moves, as (from, to).
+        ///
+        /// Exists for the user study, where "which stage, and how often did somebody end up
+        /// somewhere they did not mean to be" is the measure that tests this flow redesign
+        /// directly. Polling cannot serve it: a Ready -> Character -> Ready round trip inside
+        /// one poll interval is invisible, and that oscillation is exactly the error being
+        /// looked for.
+        /// </summary>
+        public event Action<Stage, Stage> OnStageChanged;
+
+        /// <summary>
+        /// Raised for every message that reaches the last-action line.
+        ///
+        /// This is the panel's whole outcome channel in one subscription. Every success and
+        /// every refusal already funnels through <see cref="Report"/> -- "saved 14 objects",
+        /// "nothing ready to save (12 tracked, 0 ready)", "bake FAILED -- see the log" -- so a
+        /// listener here sees what the operator saw, in the operator's own words, without
+        /// hooking the five exit paths of SaveScan and the four of BakeNavMesh separately.
+        /// </summary>
+        public event Action<string> OnReported;
 
         [Header("Look")]
         [Tooltip("Every colour and corner radius the panel draws itself with. Applied at " +
@@ -432,6 +463,9 @@ namespace ConvaiRoom
             // being re-baked: an instance whose overrides are re-pointed loses the ones the
             // scene set, and every other field here can find itself again.
             if (plan == null) plan = FindAnyObjectByType<RoomTaskPlan>();
+
+            // Normally absent. A build with no recorder in the scene is the shipped build.
+            if (study == null) study = FindAnyObjectByType<StudySessionRecorder>();
 
             // The panel owns its transform and moves it on every recenter. Rebuilt boxes are
             // parented to the rebuilder's transform, so sharing a GameObject with it would
@@ -1040,10 +1074,15 @@ namespace ConvaiRoom
         /// </summary>
         private void EnterStage(Stage stage)
         {
+            var from = _stage;
             _stage = stage;
 
             LayOutActions();
             _dirty = true;
+
+            // After the layout, not before: a listener that redraws or asks what the slots
+            // now say should see the stage it was told about, not the one being left.
+            if (from != stage) OnStageChanged?.Invoke(from, stage);
         }
 
         /// <summary>
@@ -1154,12 +1193,41 @@ namespace ConvaiRoom
         {
             for (var i = 0; i < SlotCount; i++) _slots[i] = SlotAction.None;
 
+            // The study takes the whole row while it is up, and the flow's own stages carry
+            // on underneath untouched -- _stage still says where the room is, and the six
+            // stages are still six.
+            //
+            // A sub-mode rather than new Stage members, deliberately. "Errors across the six
+            // panel stages" is a claim about the shipped flow; measuring it on an eight-stage
+            // flow built for the study would be measuring a different artifact than the one
+            // being reported on.
+            if (study != null && study.OwnsPanel)
+            {
+                for (var i = 0; i < SlotCount; i++)
+                {
+                    var label = study.SlotLabel(i);
+                    if (string.IsNullOrEmpty(label)) continue;
+
+                    var index = i;
+                    _slots[i] = new SlotAction(label, () => study.PressSlot(index),
+                                               study.SlotBlocked(i));
+                }
+
+                ApplySlots();
+                return;
+            }
+
             switch (_stage)
             {
                 case Stage.Home:
                     _slots[0] = new SlotAction("START NEW SCAN", StartNewScan);
                     _slots[1] = new SlotAction("LOAD SAVED SCAN", LoadForReview,
                         _diskState == DiskState.Missing ? "nothing saved" : "");
+
+                    // The third slot has always been empty here, which is what lets the study
+                    // in without a re-bake: no new button, no new prefab geometry, no GUID
+                    // risk. Absent a recorder it stays empty and this build is the shipped one.
+                    if (study != null) _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy);
                     break;
 
                 case Stage.Scanning:
@@ -1197,6 +1265,13 @@ namespace ConvaiRoom
                 case Stage.Character:
                     _slots[0] = new SlotAction("RESPAWN", RespawnCharacter);
                     _slots[1] = new SlotAction("BACK TO ROOM SETUP", ReturnToScanPhase);
+
+                    // The other stage whose third slot has always been empty, and the one the
+                    // study needs most: the reference trials and the task markers all happen
+                    // with her standing in the room, so a study screen reachable only from Home
+                    // would mean walking the whole flow backwards to press a button and
+                    // forwards again to use it.
+                    if (study != null) _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy);
                     break;
             }
 
@@ -1647,6 +1722,8 @@ namespace ConvaiRoom
             _lastAction = message;
             _lastActionExpiresAt = Time.time + 6f;
             _dirty = true;
+
+            OnReported?.Invoke(message);
         }
 
         /// <summary>
@@ -1938,6 +2015,15 @@ namespace ConvaiRoom
         private void RedrawDetails()
         {
             _builder.Clear();
+
+            // Above the stage block, and on every stage. This is the only readout of whether
+            // the session is actually recording, and the moment to notice it is not is while
+            // the participant still has the headset on -- after that there is no re-run.
+            if (study != null && study.HasSession)
+            {
+                _builder.AppendLine(study.DetailsBlock());
+                _builder.AppendLine();
+            }
 
             switch (_stage)
             {

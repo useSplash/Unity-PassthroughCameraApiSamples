@@ -1,3 +1,4 @@
+using System;
 using Convai.Runtime;
 using Convai.Runtime.Actions;
 using RoomScan;
@@ -74,6 +75,26 @@ namespace ConvaiRoom
 
         /// <summary>What "that" currently means, or null when nothing has been pointed at.</summary>
         public string AttentionName { get; private set; }
+
+        /// <summary>
+        /// Raised whenever "that" changes, with the name and the box it settled on.
+        ///
+        /// Fired BEFORE the check for a connected character, deliberately, and that ordering is
+        /// the whole reason the event exists rather than a listener polling
+        /// <see cref="AttentionName"/>. What follows the gate is a network round trip to the
+        /// Convai backend; what precedes it is this app deciding which object the player meant.
+        /// Those are two different things to be right or wrong about, and only the second one is
+        /// this app's to answer for -- so a measurement of resolution taken after the gate would
+        /// be timing somebody else's server.
+        ///
+        /// It also means the event fires in the editor and in a scene with no character in it,
+        /// which is what makes any of this testable without a headset and a session.
+        ///
+        /// The GameObject is the replayed proxy. Prefer it over the name: the name is a display
+        /// name invented at rebuild time and is not stable across rebuilds, while the proxy can
+        /// be looked up in RoomScanRebuilder.Rebuilt to recover the scan id, which is.
+        /// </summary>
+        public event Action<string, GameObject> OnAttentionChanged;
 
         /// <summary>The box the ray is resting on right now, which may not have settled yet.</summary>
         private GameObject _candidate;
@@ -282,6 +303,11 @@ namespace ConvaiRoom
             _committed = aimed;
             AttentionName = name;
             Highlight(aimed);
+
+            // Before the gate below. See the remark on the event: everything past this line is
+            // the backend's round trip, and this app's answer to "which one did they mean" is
+            // already final here.
+            OnAttentionChanged?.Invoke(name, aimed);
 
             var character = voice.Character;
             if (character == null || !character.IsInConversation) return;
