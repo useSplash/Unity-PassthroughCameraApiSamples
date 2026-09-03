@@ -139,6 +139,25 @@ namespace ConvaiRoomEditor
                 modality = "pointing", indicatedId = "", correct = false
             });
 
+            session.speech.Add(new SpeechEventEntry
+            {
+                t = 180.1f, speaker = "participant", kind = "started", messageId = "", characters = 0
+            });
+            session.speech.Add(new SpeechEventEntry
+            {
+                t = 182.4f, speaker = "participant", kind = "final",
+                messageId = "msg-7", characters = 23
+            });
+            session.speech.Add(new SpeechEventEntry
+            {
+                t = 183.9f, speaker = "character", kind = "started", messageId = "utt-3", characters = 0
+            });
+
+            session.summary.participantUtterances = 1;
+            session.summary.characterUtterances = 1;
+            session.summary.characterInterruptions = 0;
+            session.summary.llmNoResponses = 0;
+
             session.summary.convaiRequests = 2;
             session.summary.convaiBudget = 40;
             session.summary.convaiBudgetEnforced = false;
@@ -222,6 +241,26 @@ namespace ConvaiRoomEditor
 
             Assert("session: unresolved attempt round-trips as empty",
                    back.referenceAttempts.Count == 2 && back.referenceAttempts[1].indicatedId == "");
+
+            Assert("session: speech events kept", back.speech.Count == 3);
+
+            // The join between utterance timings and the request count. If this id is lost the
+            // two tables cannot be lined up at all, and neither carries the other's information.
+            Assert("session: speech joins to a turn on messageId",
+                   back.speech.Count == 3 && back.speech[1].messageId == "msg-7" &&
+                   back.convaiTurns.Count == 2 && back.convaiTurns[0].messageId == "msg-7");
+
+            Assert("session: utterance length kept, and it is only a length",
+                   back.speech.Count == 3 && back.speech[1].characters == 23);
+
+            // The event log's whole point: durations and latencies are subtractions between
+            // rows, so the rows have to keep their order and their instants.
+            Assert("session: speech instants survive in order",
+                   back.speech.Count == 3 &&
+                   back.speech[0].t < back.speech[1].t && back.speech[1].t < back.speech[2].t);
+
+            Assert("session: speech counts kept",
+                   back.summary.participantUtterances == 1 && back.summary.characterUtterances == 1);
 
             // Nested [Serializable] inside a list element -- the shape most likely to come
             // back null without anyone noticing.

@@ -87,7 +87,7 @@ namespace ConvaiRoom
         public bool IsHolding { get; private set; }
 
         /// <summary>Whether the SDK is bound, which is what makes the count trustworthy.</summary>
-        public bool IsBound => _boundEvents != null;
+        public bool IsBound => _binder.IsBound;
 
         /// <summary>
         /// Whether the backend said the real quota is gone. This is the unrecoverable one --
@@ -112,12 +112,16 @@ namespace ConvaiRoom
 
         // -----------------------------------------------------------------
 
-        private ConvaiManager _boundManager;
-        private ConvaiEvents _boundEvents;
-        private ConvaiRoomManager _room;
+        /// <summary>
+        /// Keeps the subscription alive across the manager coming up and being replaced. Shared
+        /// with <see cref="StudyTranscriptWatch"/>, which needs exactly the same awkward
+        /// lifecycle -- see <see cref="ConvaiEventBinder"/> for why that is not inline here.
+        /// </summary>
+        private readonly ConvaiEventBinder _binder = new ConvaiEventBinder();
 
+        private ConvaiRoomManager _room;
         private bool _announcedSpent;
-        private float _nextBindAttempt;
+        private bool _wired;
 
         /// <summary>
         /// Message ids already counted.
@@ -141,7 +145,17 @@ namespace ConvaiRoom
         /// </summary>
         public void Tick()
         {
-            Bind();
+            // Wired on the first tick rather than in a constructor, so verboseLogging set by
+            // the recorder after construction is the value the binder actually uses.
+            if (!_wired)
+            {
+                _wired = true;
+                _binder.verboseLogging = verboseLogging;
+                _binder.Bound += HandleBound;
+                _binder.Unbinding += HandleUnbinding;
+            }
+
+            _binder.Tick();
             ApplyHold();
         }
 
@@ -167,7 +181,7 @@ namespace ConvaiRoom
         /// </summary>
         public void Detach()
         {
-            Unbind();
+            _binder.Release();
 
             if (!IsHolding) return;
 
@@ -181,63 +195,30 @@ namespace ConvaiRoom
         // -----------------------------------------------------------------
 
         /// <summary>
-        /// Subscribes to the event facade once the manager has finished initialising.
+        /// Takes the two events the budget is made of.
         ///
-        /// Polled rather than driven off a ready event, because there isn't one to hang this
-        /// on: ConvaiManager.Events THROWS while initialisation is incomplete, and the manager
-        /// comes up long before the character does. IsInitialized is the documented gate. The
-        /// attempt is rate-limited so that a scene with no Convai in it at all -- the editor
-        /// harness, a scan-only build -- does not do this work every frame forever.
+        /// Both come off <c>ConvaiEvents</c> rather than <c>ConvaiManager.Transcripts</c>, and
+        /// that is what keeps the count independent of the <c>TranscriptSystemEnabled</c>
+        /// setting: the transport publishes these unconditionally, and that flag gates only the
+        /// presentation layer. A quota counter that stopped counting because somebody switched
+        /// transcripts off would be the worst kind of silent failure.
         /// </summary>
-        private void Bind()
+        private void HandleBound(ConvaiEvents events)
         {
-            var manager = ConvaiManager.ActiveManager;
-
-            // A manager that went away, or was replaced across a scene load, takes its facade
-            // with it. Rebinding is the only way the count survives that; holding the old
-            // reference would leave this counting a conversation nobody is having.
-            if (_boundEvents != null && (manager == null || manager != _boundManager)) Unbind();
-
-            if (_boundEvents != null || manager == null) return;
-            if (Time.unscaledTime < _nextBindAttempt) return;
-
-            _nextBindAttempt = Time.unscaledTime + 1f;
-
-            if (!manager.IsInitialized) return;
-
-            ConvaiEvents events;
-            try
-            {
-                events = manager.Events;
-            }
-            catch (InvalidOperationException ex)
-            {
-                // IsInitialized said yes and the getter disagreed, which can only happen if
-                // teardown started between the two. Not worth a warning every second.
-                if (verboseLogging) Debug.Log($"{Tag} Events not ready yet: {ex.Message}");
-                return;
-            }
-
-            _boundManager = manager;
-            _boundEvents = events;
-
-            _boundEvents.OnFinalUserTranscriptionReceived += HandleFinalUserTranscription;
-            _boundEvents.OnUsageLimitReached += HandleUsageLimitReached;
+            events.OnFinalUserTranscriptionReceived += HandleFinalUserTranscription;
+            events.OnUsageLimitReached += HandleUsageLimitReached;
 
             Debug.Log($"{Tag} Counting participant turns (budget {DescribeBudget()}, " +
                       $"{(Enforce ? "ENFORCED" : "warn only")}).");
         }
 
-        private void Unbind()
+        private void HandleUnbinding(ConvaiEvents events)
         {
-            if (_boundEvents != null)
-            {
-                _boundEvents.OnFinalUserTranscriptionReceived -= HandleFinalUserTranscription;
-                _boundEvents.OnUsageLimitReached -= HandleUsageLimitReached;
-            }
+            events.OnFinalUserTranscriptionReceived -= HandleFinalUserTranscription;
+            events.OnUsageLimitReached -= HandleUsageLimitReached;
 
-            _boundEvents = null;
-            _boundManager = null;
+            // Dropped with the manager it came from: the room manager is a component on that
+            // GameObject, so a cached one outlives its manager only as a stale reference.
             _room = null;
         }
 

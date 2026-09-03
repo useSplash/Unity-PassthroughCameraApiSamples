@@ -100,6 +100,20 @@ namespace ConvaiRoom
         /// </summary>
         public bool convaiQuotaExhausted;
         public string convaiQuotaType = "";
+
+        /// <summary>
+        /// The shape of the conversation: how many times each side spoke, how often she was cut
+        /// off, and how often the backend chose not to answer at all.
+        ///
+        /// <c>participantUtterances</c> and <see cref="convaiRequests"/> count the same event
+        /// and should agree. They are kept separately on purpose -- one is the bill and one is
+        /// the interaction -- and a disagreement between them is a real signal that one of the
+        /// two subscriptions missed events.
+        /// </summary>
+        public int participantUtterances;
+        public int characterUtterances;
+        public int characterInterruptions;
+        public int llmNoResponses;
     }
 
     /// <summary>One period of collecting, from entering the scanning stage to leaving it.</summary>
@@ -317,6 +331,57 @@ namespace ConvaiRoom
         public bool correct;
     }
 
+    /// <summary>
+    /// One boundary in the conversation: somebody started or stopped speaking, an utterance was
+    /// understood, a turn finished.
+    ///
+    /// AN EVENT LOG, NOT DURATIONS. Nothing here is an interval. Every duration and latency the
+    /// analysis could want -- how long she took to start answering, how long an utterance ran,
+    /// the gap between a participant finishing and the backend understanding them -- is a
+    /// subtraction between two rows that are both here. Storing intervals instead would mean
+    /// choosing now which ones matter, before anybody has seen a session, and there is one shot
+    /// per participant.
+    ///
+    /// THERE IS NO TEXT FIELD, and there is nowhere to put one. <see cref="characters"/> is a
+    /// length, not a recording: it cannot be read back into words, and it answers whether
+    /// people produce longer referring expressions when naming is hard.
+    /// </summary>
+    [Serializable]
+    public class SpeechEventEntry
+    {
+        public float t;
+
+        /// <summary>"participant" or "character".</summary>
+        public string speaker = "";
+
+        /// <summary>
+        /// "started", "stopped", "final", "turn-done", "interrupted", "no-response".
+        ///
+        /// A loose string rather than an enum, for the reason <see cref="NoteEntry"/> gives: a
+        /// protocol grows new kinds mid-study, and a new enum member is a rebuild and a redeploy
+        /// to a headset on another machine.
+        ///
+        /// "stopped" and "final" are deliberately different events. The first is when they
+        /// finished speaking, the second is when the backend had finished understanding it;
+        /// folding them together would put the recognition delay into either the participant's
+        /// thinking time or her response time depending which end you measured from.
+        /// </summary>
+        public string kind = "";
+
+        /// <summary>
+        /// The backend id, where the event carries one. Empty otherwise. This is the join to
+        /// <see cref="ConvaiTurnEntry.messageId"/>, which is how utterance timings and the
+        /// request count line up without either side counting for the other.
+        /// </summary>
+        public string messageId = "";
+
+        /// <summary>
+        /// How long the utterance was, in characters. Zero on events that carry no text.
+        /// A measure, not a recording -- see the remark on this class.
+        /// </summary>
+        public int characters;
+    }
+
     /// <summary>One line from the panel's own outcome channel, success or refusal.</summary>
     [Serializable]
     public class ReportEntry
@@ -390,6 +455,8 @@ namespace ConvaiRoom
         public List<ReportEntry> reports = new List<ReportEntry>();
         public List<NoteEntry> notes = new List<NoteEntry>();
         public List<ConvaiTurnEntry> convaiTurns = new List<ConvaiTurnEntry>();
+
+        public List<SpeechEventEntry> speech = new List<SpeechEventEntry>();
 
         public ReferenceBlock referenceBlock = new ReferenceBlock();
         public List<ReferenceTrialEntry> referenceTrials = new List<ReferenceTrialEntry>();

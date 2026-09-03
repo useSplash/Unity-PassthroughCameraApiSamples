@@ -1,11 +1,11 @@
-# Handoff — study instrumentation, phase 3
+# Handoff — study instrumentation, phase 4
 
-Read this first, then start at **Build order, item 3**. Items 1 and 2 are done.
+Read this first, then start at **Build order, item 4**. Items 1, 2 and 3 are done.
 
 ## Where things stand
 
-Branch **`user-test-metrics`** (off `refinement`). Phases 1 and 2 are done, compile under both
-`dotnet` and the Unity editor, and are uncommitted in the working tree.
+Branch **`user-test-metrics`** (off `refinement`). Items 1–3 are done and compile clean.
+Phases 1 and 2 are committed (`f118cc1`); item 3 is uncommitted in the working tree.
 
 **Decisions taken (2026-09-03), do not reopen:**
 
@@ -48,6 +48,8 @@ Everything below is shaped by these. Do not design past them.
 | `Study/StudyRequestBudget.cs` | Convai turn counter, budget, opt-in hard stop |
 | `Study/ReferenceTrialRunner.cs` | The reference-resolution block |
 | `Grounding/RoomAttentionExecutor.cs` | The "Look At" action — naming sets attention |
+| `Study/ConvaiEventBinder.cs` | Keeps an SDK subscription alive across manager swaps |
+| `Study/StudyTranscriptWatch.cs` | Utterance counts and timings, never text |
 
 Edits to existing files: `ConvaiRoomModePanel` gained `OnStageChanged`, `OnReported`, a
 public `Stage` enum, a study sub-mode branch in `LayOutActions`, and the study entry slot at
@@ -77,10 +79,17 @@ sections below for what they turned up.
 The risk is unchanged — "the chair by the couch" routing to `Move To` and walking her across
 the room mid-trial. Nothing in the code can test that.
 
-### 3. Utterance counts and timings
+### 3. Utterance counts and timings — **DONE**
 
-New: `Study/StudyTranscriptWatch.cs`. **Counts, turn ids and timestamps only — never store
-transcript text.** This was an explicit decision; participant speech does not go on disk.
+`Study/StudyTranscriptWatch.cs`, plus `Study/ConvaiEventBinder.cs` extracted from the request
+counter so the two SDK listeners share one bind/rebind path instead of two copies of it.
+
+Counts, turn ids and instants only. `characters` is an utterance LENGTH, not text — it cannot
+be read back into words and it answers whether referring expressions get longer when naming is
+hard. Her text is not measured at all; her speech is timed acoustically, which avoids a row per
+streamed chunk.
+
+**It does not need the transcript system** — see the corrected facts below.
 
 ### 4. Task markers and the planner event
 
@@ -155,12 +164,22 @@ These cost real time to work out. They are verified against the current code.
 - Four identical chairs get **unique** names (`RoomScanContext.NameThem`), so a distractor
   set is nameable; with no unique landmarks in the room they fall back to "chair 1..4".
 
-**Transcripts**
-- Available but never enabled in this project: `ConvaiManager.Transcripts` →
-  `TurnCommitted` / `GetTurns`, or the inspector relay `ConvaiTranscriptEventRelay`
-  (`OnFinalPlayerTranscriptReceived`, payload carries `_turnId`, `_text`, `_isFinal`).
-- Gated behind a `TranscriptSystemEnabled` runtime setting — **verify it is on**.
+**Transcripts** — this section was wrong in one important way; corrected 2026-09-03.
+
+- `TranscriptSystemEnabled` **is on** (`_transcriptSystemEnabled: 1` in `ConvaiSettings.asset`).
+  That was the last open external to-do and it is now closed.
+- **But nothing in the study depends on it.** The flag gates only the PRESENTATION layer —
+  `ConvaiTranscripts`, `ConvaiTranscriptEventRelay` and the transcript UIs, all of which check
+  `IsPresentationEnabled`. The transport (`PlayerConversationInput`, `RTVIHandler`) publishes
+  the domain events **unconditionally**, so everything on `ConvaiEvents` keeps arriving with
+  transcripts switched off. Both the request counter and the speech watch take that route
+  deliberately; going through `Transcripts.TurnCommitted` would have put every conversation
+  measurement in the study behind a toggle in a settings panel.
 - `ConvaiCharacter.OnTranscriptReceived` is **her TTS text**, not the participant's. Wrong event.
+- Useful events beyond the participant final: `OnPlayerSpeakingStateChanged`,
+  `OnCharacterSpeechStateChanged` (carries `UtteranceId`), `OnCharacterTurnCompleted` (carries
+  `WasInterrupted`), `OnLlmNoResponseReceived` (she chose not to answer — otherwise invisible,
+  and indistinguishable from a reply that never came).
 
 **Panel**
 - `SlotCount = 3`. `LayOutActions` leaves **slot 2 empty at `Stage.Home` and `Stage.Character`**,
@@ -238,13 +257,13 @@ Phase 1 is uncommitted. Committing it before starting phase 2 is reasonable.
    it there is no naming condition and no study.
 2. **Routing pilot.** Risk: "the chair by the couch" routes to the existing Move To action and
    walks her across the room. Test before building the block around it.
-3. **Verify `TranscriptSystemEnabled`** is on.
-4. **Six `AddComponent`s** on the room-manager GameObject (the one with `ObjectScanRecorder`):
+3. ~~Verify `TranscriptSystemEnabled`~~ — **done, it is on**, and nothing depends on it anyway.
+4. **Five `AddComponent`s** on the room-manager GameObject (the one with `ObjectScanRecorder`):
    `StudySessionRecorder`, `RoomTruthMarker` (+ drag in `SentisYoloClasses.txt`),
-   `ScanObservationLog`, `ReferenceTrialRunner`, `RoomAttentionExecutor` — all five now exist —
-   then `StudyTranscriptWatch` when it is built. The turn counter is deliberately **not** a
-   component; it is owned and ticked by `StudySessionRecorder` so this list did not grow a
-   seventh entry for something with no Inspector surface.
+   `ScanObservationLog`, `ReferenceTrialRunner`, `RoomAttentionExecutor`. All five exist.
+   The turn counter and the speech watch are deliberately **not** components — no Inspector
+   surface, no scene presence — so `StudySessionRecorder` owns and ticks them and this list
+   stayed at five.
 
    `RoomAttentionExecutor` must also be set as the executor on the `Look At` action in the
    Convai dashboard, or naming resolves to nothing and the block runs pointing-only (it says

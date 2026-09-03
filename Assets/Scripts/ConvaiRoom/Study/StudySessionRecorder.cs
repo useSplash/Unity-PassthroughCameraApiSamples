@@ -187,6 +187,13 @@ namespace ConvaiRoom
         /// </summary>
         private readonly StudyRequestBudget _budget = new StudyRequestBudget();
 
+        /// <summary>
+        /// Utterance counts and timings. Owned here for the same reason the budget is -- it has
+        /// no Inspector surface and no scene presence, so making it a component would grow the
+        /// scene-setup list for nothing. Counts and instants only; it has nowhere to put text.
+        /// </summary>
+        private readonly StudyTranscriptWatch _speech = new StudyTranscriptWatch();
+
         // Cluster polling. The set is what makes a milestone fire once: a cluster stays
         // exportable for the rest of the scan, so without it every poll would write a row.
         private readonly List<ObjectScanRecorder.ClusterView> _snapshot =
@@ -674,6 +681,15 @@ namespace ConvaiRoom
             _budget.OnTurn += HandleConvaiTurn;
             _budget.OnBudgetSpent += HandleBudgetSpent;
             _budget.OnQuotaExhausted += HandleQuotaExhausted;
+
+            // Quiet even when the recorder is verbose: this fires four or five times per
+            // exchange, and a line each would bury the entries that matter during a session.
+            _speech.verboseLogging = false;
+
+            // The same clock the trial runner is given, and the same reason: two clocks in one
+            // file is how an offline join produces an ordering that never happened.
+            _speech.TimeSource = () => T;
+            _speech.OnSpeechEvent += HandleSpeechEvent;
         }
 
         private void OnEnable()
@@ -713,6 +729,7 @@ namespace ConvaiRoom
             // app with a muted microphone and nothing left to open it -- a state you can only
             // get out of by restarting.
             _budget.Detach();
+            _speech.Detach();
 
             // A session that is still open when this is torn down has whatever it collected
             // still in memory. Writing it is the difference between a short session and no
@@ -782,6 +799,7 @@ namespace ConvaiRoom
             _budget.Budget = convaiBudget;
             _budget.Enforce = enforceBudget;
             _budget.Reset();
+            _speech.Reset();
 
             Note("session-start", $"{ParticipantId} {RoomLabel} run {run}");
             Note("budget", $"{(convaiBudget <= 0 ? "no budget" : convaiBudget + " requests")}, " +
@@ -993,6 +1011,21 @@ namespace ConvaiRoom
         }
 
         /// <summary>
+        /// One speech boundary.
+        ///
+        /// Not flushed, for the same reason a turn is not: these arrive several times per
+        /// exchange while somebody is talking, and a flush re-serialises the whole session.
+        /// They ride along to the next coarse event, and OnApplicationPause catches the headset
+        /// coming off, which is how a session really ends.
+        /// </summary>
+        private void HandleSpeechEvent(SpeechEventEntry entry)
+        {
+            if (_session == null || entry == null) return;
+
+            _session.speech.Add(entry);
+        }
+
+        /// <summary>
         /// The app's own budget line, reached.
         ///
         /// Flushed, unlike a turn: this is rare, it is the moment the session's character
@@ -1039,6 +1072,7 @@ namespace ConvaiRoom
             // live count during a pilot turn is how anyone finds out the counter is attached
             // at all before it matters.
             _budget.Tick();
+            _speech.Tick();
 
             if (_session == null) return;
 
@@ -1218,6 +1252,11 @@ namespace ConvaiRoom
             s.convaiBudgetEnforced = _budget.Enforce;
             s.convaiQuotaExhausted = _budget.QuotaExhausted;
             s.convaiQuotaType = _budget.QuotaType ?? "";
+
+            s.participantUtterances = _speech.ParticipantUtterances;
+            s.characterUtterances = _speech.CharacterUtterances;
+            s.characterInterruptions = _speech.Interruptions;
+            s.llmNoResponses = _speech.NoResponses;
         }
 
         /// <summary>
@@ -1271,6 +1310,11 @@ namespace ConvaiRoom
                     .AppendLine();
 
             _builder.AppendLine(_budget.Describe());
+
+            // Only once somebody has spoken. Before that it is a row saying nothing has
+            // happened yet, on a readout with five other things competing for the same space.
+            if (_speech.ParticipantUtterances > 0 || _speech.CharacterUtterances > 0)
+                _builder.AppendLine(_speech.Describe());
 
             // Only once there is a block. Before that the line would be a permanent "trials:
             // none built" on a readout with four other things competing for the same few rows.

@@ -27,6 +27,10 @@ Add five components to the room-manager GameObject (the one carrying `ObjectScan
 | `ReferenceTrialRunner` | the reference block | none |
 | `RoomAttentionExecutor` | the **naming** condition | bind to the `Look At` action (below) |
 
+The Convai request counter and the utterance watch are **not** components — they have no
+Inspector surface and no scene presence, so `StudySessionRecorder` owns and drives them rather
+than growing this list for something you would never configure.
+
 `RoomAttentionExecutor` also needs an action authored on the character's Convai Action Config,
 or there is no naming condition and the block runs pointing-only (it says so, in the console and
 in `referenceBlock.unavailable`):
@@ -152,6 +156,44 @@ turn it on only once a pilot has established what the real ceiling is.
 The panel line reads `convai : 12 turns, 28 left of 40`. **`NOT COUNTING` in that line means
 the counter never attached** — a count of zero because nobody spoke and a count of zero because
 nothing was listening look identical otherwise.
+
+---
+
+## Utterance counts and timings
+
+Every boundary in the conversation goes to `speech[]`: who spoke, whether they started,
+stopped, were understood, finished a turn, were cut off, or got no answer at all.
+
+**It is an event log, not a set of durations.** Nothing subtracts one timestamp from another on
+device. How long she took to start answering, how long an utterance ran, whether she was talked
+over — all of it is a subtraction between two rows that are both in the file. Computing
+intervals on device would mean choosing now which ones matter, before anyone has seen a
+session, and there is one shot per participant.
+
+Two distinctions the log preserves that are easy to lose:
+
+- **`stopped` and `final` are different events.** The first is when they finished speaking, the
+  second is when the backend had finished understanding them. Measuring from only one folds the
+  recognition delay into either the participant's thinking time or her response time.
+- **`no-response` is not a failure.** The backend decided not to answer. Without the row it
+  looks exactly like a reply that never arrived.
+
+**No text, and nowhere to put it.** `characters` is a length, not a recording — it cannot be
+read back into words, and it answers whether people give longer referring expressions when
+naming is hard. Her text is not measured at all; her speech is timed acoustically, which
+avoids a per-chunk row for every streamed reply and touches nothing she said.
+
+`speech[]` joins to `convaiTurns[]` on `messageId`. `summary.participantUtterances` and
+`summary.convaiRequests` count the same event and should agree — they are kept separately on
+purpose, one being the bill and one the interaction, and a disagreement means one of the two
+subscriptions missed events.
+
+**This does not need the transcript system.** Everything comes off `ConvaiEvents`, which the
+transport publishes unconditionally; `TranscriptSystemEnabled` gates only the presentation layer
+(`ConvaiTranscripts`, the inspector relay, the transcript UIs). The obvious route through
+`Transcripts.TurnCommitted` would have made every speech measurement depend on a setting anyone
+can switch off from a settings panel. It is currently on (`_transcriptSystemEnabled: 1`); none
+of this relies on that.
 
 ---
 
