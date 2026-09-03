@@ -17,7 +17,7 @@ session and a v2 session where nobody spoke both read back as `convaiRequests: 0
 
 ## Scene setup (once)
 
-Add five components to the room-manager GameObject (the one carrying `ObjectScanRecorder`):
+Add four components to the room-manager GameObject (the one carrying `ObjectScanRecorder`):
 
 | Component | Needed for | Inspector work |
 |---|---|---|
@@ -25,15 +25,27 @@ Add five components to the room-manager GameObject (the one carrying `ObjectScan
 | `RoomTruthMarker` | ground truth | **drag in `SentisYoloClasses.txt`** (see below) |
 | `ScanObservationLog` | the extent ablation only | none |
 | `ReferenceTrialRunner` | the reference block | none |
-| `RoomAttentionExecutor` | the **naming** condition | bind to the `Look At` action (below) |
 
 The Convai request counter and the utterance watch are **not** components — they have no
 Inspector surface and no scene presence, so `StudySessionRecorder` owns and drives them rather
 than growing this list for something you would never configure.
 
-`RoomAttentionExecutor` also needs an action authored on the character's Convai Action Config,
-or there is no naming condition and the block runs pointing-only (it says so, in the console and
-in `referenceBlock.unavailable`):
+**`RoomAttentionExecutor` goes on the CHARACTER prefab, not here.** It is the one piece of this
+that cannot live on the room manager: the SDK binds an action's executor by searching the
+character's own hierarchy (`ConvaiActionExecutorBinder` calls `root.GetComponentInChildren`,
+never a scene-wide lookup), so an executor anywhere else is invisible to the action and the
+naming condition silently never runs. Put it on the same prefab root that already carries
+`ConvaiActionConfigSource` and `RoomTaskPlanner` — the pattern `Move To` and `Plan Task`
+already follow. Its own `context`/`voice` fields stay empty; those are scene objects and it
+finds them in `Awake`.
+
+Because the character is instantiated at runtime, `ReferenceTrialRunner` cannot resolve the
+executor at scene load and deliberately does not try — it looks again when the block is built
+and when it starts. **Bring the character in before building the reference block**, or there is
+no naming condition and the block runs pointing-only (it says so, in the console and in
+`referenceBlock.unavailable`).
+
+It also needs the action itself authored on the character's Convai Action Config:
 
 ```
 Action name   Look At

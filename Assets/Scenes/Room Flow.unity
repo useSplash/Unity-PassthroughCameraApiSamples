@@ -7867,7 +7867,6 @@ GameObject:
   - component: {fileID: 1339185282}
   - component: {fileID: 1339185281}
   - component: {fileID: 1339185280}
-  - component: {fileID: 1339185279}
   - component: {fileID: 1339185278}
   m_Layer: 0
   m_Name: Room Scan
@@ -8212,22 +8211,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RoomScan.RoomRebuildLog
   rebuilder: {fileID: 0}
   verboseLogging: 0
---- !u!114 &1339185279
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1339185257}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: ac29871690744b346a8474997e038e86, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomAttentionExecutor
-  context: {fileID: 0}
-  voice: {fileID: 0}
-  acknowledgement: Got it.
-  verboseLogging: 1
 --- !u!114 &1339185280
 MonoBehaviour:
   m_ObjectHideFlags: 0

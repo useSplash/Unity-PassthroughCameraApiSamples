@@ -19,8 +19,12 @@ tolerance was failing on float32 accumulation, not on a real quantisation defect
 multiply/round/divide/subtract chain is float32 throughout and `1.2345f` round-trips about
 8e-8 m past the literal `0.0005f`. **The self-check is now 136/136.**
 
-**The scene is wired** (`c265e6c`). All six components are on `Room Scan`; see "External work"
-below, which is now down to the dashboard action, the headset work and the task prompts.
+**The scene is wired** (`c265e6c`), and then corrected. Five components are on `Room Scan`
+(`StudySessionRecorder`, `RoomTruthMarker`, `ScanObservationLog`, `ReferenceTrialRunner`,
+`RoomRebuildLog`); `RoomAttentionExecutor` is on the **character prefab**, because the SDK only
+binds an executor from the character's own hierarchy — `c265e6c` had it on `Room Scan`, where
+it could never have bound. The `Look At` action is authored and bound to it. See "External
+work" below, which is now down to the routing pilot, the scans and the task prompts.
 
 **Decisions taken (2026-09-03), do not reopen:**
 
@@ -371,26 +375,34 @@ turn into code.
 
 ## External work — not code, start it in parallel
 
-1. **Author the "Look At" action** in the Convai dashboard. Word it narrowly: *the player is
-   indicating which object they mean; they are not asking you to move or do anything.* Without
-   it there is no naming condition and no study.
+1. ~~**Author the "Look At" action**~~ — **DONE.** It lives on the character's own
+   `ConvaiActionConfigSource` (a component on the `Room Character Camila` prefab — a local
+   asset, not a web dashboard), worded narrowly against the Move To boundary, with
+   `TargetRequirement: None`, `Timeout: 10`, `AnswerDelivery: TellThePlayer`, an `object`
+   string parameter, and `RoomAttentionExecutor` bound as its `Executor` by direct reference —
+   the same shape `Plan Task` uses. Only the routing pilot below can say whether the wording
+   actually holds.
 2. **Routing pilot.** Risk: "the chair by the couch" routes to the existing Move To action and
    walks her across the room. Test before building the block around it.
 3. ~~Verify `TranscriptSystemEnabled`~~ — **done, it is on**, and nothing depends on it anyway.
-4. ~~**Five `AddComponent`s** on the room-manager GameObject~~ — **DONE** (`c265e6c`).
-   `StudySessionRecorder`, `RoomTruthMarker`, `ScanObservationLog`, `ReferenceTrialRunner` and
-   `RoomAttentionExecutor` are on `Room Scan` (the object carrying `ObjectScanRecorder`), and
-   `RoomTruthMarker.labelsAsset` is set to the shipped `SentisYoloClasses.txt`. Every
-   self-resolving reference field reads `null` in the Inspector and is meant to — they resolve
-   through `FindAnyObjectByType` in `Awake` at runtime, not at edit time.
+4. ~~**Five `AddComponent`s** on the room-manager GameObject~~ — **DONE**, but **four** of them,
+   not five (`c265e6c`, corrected in `<this commit>`). `StudySessionRecorder`, `RoomTruthMarker`,
+   `ScanObservationLog` and `ReferenceTrialRunner` are on `Room Scan` (the object carrying
+   `ObjectScanRecorder`), and `RoomTruthMarker.labelsAsset` is set to the shipped
+   `SentisYoloClasses.txt`. Every self-resolving reference field reads `null` in the Inspector
+   and is meant to — they resolve through `FindAnyObjectByType` in `Awake` at runtime.
    The turn counter and the speech watch are deliberately **not** components — no Inspector
-   surface, no scene presence — so `StudySessionRecorder` owns and ticks them and this list
-   stayed at five.
+   surface, no scene presence — so `StudySessionRecorder` owns and ticks them.
 
-   **Still outstanding:** `RoomAttentionExecutor` must be set as the executor on the `Look At`
-   action in the Convai dashboard, or naming resolves to nothing and the block runs
-   pointing-only (it says so, in the console and in `referenceBlock.unavailable`). The
-   component now exists in the scene, so it is selectable there.
+   **`RoomAttentionExecutor` is the fifth and it does NOT belong here.** `c265e6c` put it on
+   `Room Scan` because this list said to, and it could never have worked: the SDK binds an
+   action's executor by searching the **character's own hierarchy**
+   (`ConvaiActionExecutorBinder` → `root.GetComponentInChildren`), never the scene. It now sits
+   on the `Room Character Camila` prefab root beside `ConvaiActionConfigSource` and
+   `RoomTaskPlanner`, which is where `Move To` and `Plan Task` have always kept theirs. Leaving
+   a second copy on `Room Scan` would have been worse than the original bug —
+   `ReferenceTrialRunner`'s `FindAnyObjectByType` would bind the dead one and the block would
+   look configured while hearing nothing.
 
 5. **A new `.cs` file has no `.meta` until Unity focuses/refreshes.** True for the instant right
    after `Write`, not a standing problem — confirmed this session that UnityMCP's
@@ -415,18 +427,25 @@ All six build-order items are done, the two self-check bugs are fixed, and the s
 Both of revision 3's protocol decisions are settled at the top of this file, and protocol
 **revision 4** in the artifact reflects them.
 
-**Nothing left in this repo is doable without a person.** Everything outstanding is gated on
-one of four things, none of them code:
+**Nothing left in this repo is doable without a person.** The `Look At` action is now authored
+and bound (external work 1), so the naming path exists end to end in the project. What is left
+is gated on one of three things, none of them code:
 
-1. **The `Look At` action** in the Convai dashboard (external work 1), with
-   `RoomAttentionExecutor` as its executor. Until it exists the reference block runs
-   pointing-only, by design and out loud.
-2. **The routing pilot** (external work 2), which needs 1 first.
-3. **Six research scans + ground truth per room.** `<persistentDataPath>/study/` was empty as of
+1. **The routing pilot** (external work 2). Now unblocked and now the top of the list: the
+   action, its parameter and its executor are all in place, so the only open question is
+   whether "the chair by the couch" reaches `Look At` or gets claimed by `Move To`. Nothing in
+   the Editor can answer it.
+2. **Six research scans + ground truth per room.** `<persistentDataPath>/study/` was empty as of
    2026-09-03 — no scans, no `truth_R*.json`, no rebuild logs. The corpus harness has nothing
    to read until this happens.
-4. **Six household task prompts** (external work 6). Still nobody's written them down, and they
+3. **Six household task prompts** (external work 6). Still nobody's written them down, and they
    are still not to be invented in code.
+
+**When piloting, bring the character in before opening `REF BLOCK`.** The executor lives on the
+character and the character is spawned at runtime, so a block built before she arrives is a
+block generated without a naming condition. `ReferenceTrialRunner` re-looks at both build and
+start and warns loudly when it still finds nothing, but it cannot retrofit trials into a block
+that was already generated.
 
 **One real decision is open, and it is not a bug.** "Steps advanced" is still unrecorded (see
 item 4). `RoomTaskPlan.TryMove` returns `false` without `Publish()` when the move is a no-op,

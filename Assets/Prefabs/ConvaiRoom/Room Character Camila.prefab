@@ -10901,6 +10901,7 @@ GameObject:
   - component: {fileID: 2635961944521895042}
   - component: {fileID: 983940163554673660}
   - component: {fileID: 6037254684610857879}
+  - component: {fileID: 4446994134646067551}
   m_Layer: 0
   m_Name: Room Character Camila
   m_TagString: Untagged
@@ -11177,17 +11178,24 @@ MonoBehaviour:
     _disabled: 0
     _category: 
   - ActionName: Look At
-    Description: Turn to face the given object in the room.
-    Parameters: []
-    TargetRequirement: 1
-    Executor: {fileID: 0}
+    Description: The player is indicating which object in the room they mean. They
+      are NOT asking you to move, walk, fetch, or do anything with it. Only note
+      which one they are referring to.
+    Parameters:
+    - Name: object
+      Description: The object as the player named it. May be an alias.
+      Type: 2
+      Connector: 
+      Choices: []
+    TargetRequirement: 0
+    Executor: {fileID: 4446994134646067551}
     ExecutorTypeHint: 
-    TimeoutSeconds: 0
+    TimeoutSeconds: 10
     FailurePolicyOverride: 0
-    AnswerDelivery: 0
+    AnswerDelivery: 3
     WaitForBotSpeech: 0
     DelayAfterBotSpeechSeconds: 0
-    _disabled: 1
+    _disabled: 0
     _category: 
   - ActionName: Plan Task
     Description: The player is asking how to do something, or to be shown how. Use
@@ -11452,6 +11460,22 @@ MonoBehaviour:
   - _reason: 8
     _line: I couldn't {action}.
   _scriptedSuccessLine: There, all done.
+--- !u!114 &4446994134646067551
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8345150164439981185}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ac29871690744b346a8474997e038e86, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.RoomAttentionExecutor
+  context: {fileID: 0}
+  voice: {fileID: 0}
+  acknowledgement: Got it.
+  verboseLogging: 1
 --- !u!1 &8483827831080387329
 GameObject:
   m_ObjectHideFlags: 0

@@ -84,8 +84,10 @@ namespace ConvaiRoom
         public RoomScanPointer pointer;
 
         [Tooltip("The naming modality -- the executor behind the character's Look At action. " +
-                 "Without one in the scene there is no naming condition and the block says so " +
-                 "rather than running half a design.")]
+                 "Leave this empty: it lives on the character prefab and so does not exist " +
+                 "until the character is spawned, which is why it is resolved when the block " +
+                 "is built rather than in Awake. Without one there is no naming condition and " +
+                 "the block says so rather than running half a design.")]
         public RoomAttentionExecutor attention;
 
         [Tooltip("Optional. Only used to name the target on the panel so the facilitator can " +
@@ -179,6 +181,15 @@ namespace ConvaiRoom
         private bool _pointerHighlightWas;
         private bool _suppressedPointer;
 
+        /// <summary>
+        /// Whether <see cref="attention"/>'s events are currently subscribed.
+        ///
+        /// Tracked rather than inferred because the subscription is made lazily and from more
+        /// than one place, and subscribing twice would score one spoken name as two naming
+        /// indications -- which is a trial outcome, not a cosmetic double-count.
+        /// </summary>
+        private bool _attentionSubscribed;
+
         /// <summary>Raised as each trial finishes, so the recorder can write it down.</summary>
         public event Action<ReferenceTrialEntry> OnTrialFinished;
 
@@ -202,34 +213,69 @@ namespace ConvaiRoom
         {
             if (rebuilder == null) rebuilder = FindAnyObjectByType<RoomScanRebuilder>();
             if (pointer == null) pointer = FindAnyObjectByType<RoomScanPointer>();
-            if (attention == null) attention = FindAnyObjectByType<RoomAttentionExecutor>();
             if (context == null) context = FindAnyObjectByType<RoomScanContext>();
+
+            // attention is deliberately NOT resolved here -- see EnsureAttention. It lives on
+            // the character, and at Awake there is no character.
         }
 
         private void OnEnable()
         {
             if (pointer != null) pointer.OnAttentionChanged += HandlePointed;
 
-            if (attention != null)
-            {
-                attention.OnAttentionChanged += HandleNamed;
-                attention.OnAttentionUnresolved += HandleNameUnresolved;
-            }
+            EnsureAttention();
         }
 
         private void OnDisable()
         {
             if (pointer != null) pointer.OnAttentionChanged -= HandlePointed;
 
-            if (attention != null)
+            if (attention != null && _attentionSubscribed)
             {
                 attention.OnAttentionChanged -= HandleNamed;
                 attention.OnAttentionUnresolved -= HandleNameUnresolved;
             }
 
+            _attentionSubscribed = false;
+
             // A cue left on the box would outlive the block and read as a target on whatever
             // runs next. Restoring here covers the scene being torn down mid-trial.
             ClearCue();
+        }
+
+        /// <summary>
+        /// Finds the naming executor and subscribes to it, as late as it takes.
+        ///
+        /// This cannot be an Awake lookup like every other reference on this component, and the
+        /// reason is structural rather than incidental. RoomAttentionExecutor lives on the
+        /// CHARACTER, because the Convai SDK only ever binds an action's executor from the
+        /// character's own hierarchy (ConvaiActionExecutorBinder searches
+        /// root.GetComponentInChildren, never the scene) -- and the character is instantiated at
+        /// runtime by RoomCharacterSpawner, on purpose, so a Convai rig is not being animated
+        /// through the whole scan phase. At scene load there is therefore no executor to find.
+        /// An Awake-only lookup binds null, never subscribes, and silently drops the naming half
+        /// of the block, which is half the study's primary measure.
+        ///
+        /// Idempotent, because Build and Begin both call it and OnEnable does too. Subscribing
+        /// twice would score one spoken name as two naming indications -- and a naming
+        /// indication spends a Convai request, so the miscount would land in the budget as well
+        /// as in the results.
+        /// </summary>
+        private void EnsureAttention()
+        {
+            // Unity's == reports a destroyed object as null, which is exactly what a despawned
+            // character leaves behind. That is the moment the flag has to drop too: otherwise a
+            // respawn resolves the new executor and then declines to subscribe to it, because
+            // the flag still describes a subscription to an object that no longer exists.
+            if (attention == null) _attentionSubscribed = false;
+
+            if (attention == null) attention = FindAnyObjectByType<RoomAttentionExecutor>();
+
+            if (attention == null || _attentionSubscribed) return;
+
+            attention.OnAttentionChanged += HandleNamed;
+            attention.OnAttentionUnresolved += HandleNameUnresolved;
+            _attentionSubscribed = true;
         }
 
         // -----------------------------------------------------------------
@@ -247,6 +293,11 @@ namespace ConvaiRoom
         {
             _trials.Clear();
             _unavailable.Clear();
+
+            // Before the modality loop decides whether naming exists. By the time a block is
+            // being built the character has normally been brought in, which is the first moment
+            // the executor can be found at all.
+            EnsureAttention();
 
             if (rebuilder == null || rebuilder.Scan == null)
             {
@@ -308,9 +359,12 @@ namespace ConvaiRoom
             {
                 for (var d = 1; d <= maxDistractors; d++) _unavailable.Add($"naming/{d}");
 
-                Debug.LogWarning($"{Tag} There is no RoomAttentionExecutor in the scene, so the " +
-                                 $"naming condition cannot run and this block is pointing only. " +
-                                 $"Add one to the room manager and author the Look At action.");
+                Debug.LogWarning($"{Tag} No RoomAttentionExecutor was found, so the naming " +
+                                 $"condition cannot run and this block is pointing only. It " +
+                                 $"lives on the CHARACTER prefab, not the room manager -- the " +
+                                 $"SDK only binds an executor from the character's own " +
+                                 $"hierarchy -- so bring the character in before building the " +
+                                 $"block, and check the Look At action names it as its executor.");
             }
 
             Shuffle(_trials, random);
@@ -496,6 +550,10 @@ namespace ConvaiRoom
                 _status = "no trials - build the block first";
                 return;
             }
+
+            // Again here: a character brought in between Build and Begin still has to be heard,
+            // and the trials this block is about to run were generated knowing whether it was.
+            EnsureAttention();
 
             Block.ran = true;
             _index = -1;
