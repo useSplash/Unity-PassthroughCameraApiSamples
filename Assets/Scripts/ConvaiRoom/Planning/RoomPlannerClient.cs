@@ -183,6 +183,93 @@ namespace ConvaiRoom
                 new PlanResult(false, "", Array.Empty<PlannedStep>(), failure);
         }
 
+        /// <summary>
+        /// One attempt at a plan, however it ended.
+        ///
+        /// WHY THIS EXISTS. PlanAsync was never timed -- only <c>request.timeout</c> bounded it,
+        /// and nothing anywhere recorded how long an answer actually took, which is the single
+        /// number a person waiting in a headset cares about. The dropped-location warning was
+        /// logged and never counted, and <c>step.HasPlace == false</c> cannot tell "the planner
+        /// said nowhere" from "the planner named a place the room no longer has". Those are
+        /// different failures and only one of them is the model's fault.
+        ///
+        /// Raised for FAILURES AND CANCELLATIONS TOO. A timing that only covers the successes is
+        /// the timing of a faster planner than the one anybody used: the slow attempts are
+        /// exactly the ones that time out or get given up on, and dropping them would make the
+        /// latency figure better the worse the planner got.
+        ///
+        /// Carries the condition as well as the outcome. <see cref="PlacesOffered"/> and
+        /// <see cref="HadRoomSummary"/> together are what distinguish a grounded attempt from an
+        /// ungrounded one -- withholding the summary matters as much as emptying the place list,
+        /// because a summary naming the furniture reimports the vocabulary the ablation removes.
+        /// </summary>
+        public readonly struct PlanAttempt
+        {
+            public readonly bool Ok;
+
+            /// <summary>True when the caller gave up, which is neither success nor failure.</summary>
+            public readonly bool Cancelled;
+
+            /// <summary>Short reason. Empty when <see cref="Ok"/>.</summary>
+            public readonly string Failure;
+
+            public readonly string Backend;
+            public readonly string Model;
+
+            /// <summary>The task as asked. See the remark on recording it.</summary>
+            public readonly string Task;
+
+            /// <summary>How many places the schema enum offered. Zero is the ungrounded arm.</summary>
+            public readonly int PlacesOffered;
+
+            /// <summary>Whether a room summary went with it. See the class remark.</summary>
+            public readonly bool HadRoomSummary;
+
+            /// <summary>Wall-clock seconds from the call to the answer, or to the failure.</summary>
+            public readonly float LatencySeconds;
+
+            public readonly int Steps;
+
+            /// <summary>Steps that came back with a place the room actually has.</summary>
+            public readonly int GroundedSteps;
+
+            /// <summary>
+            /// Steps whose location was thrown away because the room no longer had it. Counted
+            /// separately from ungrounded steps: a dropped location is a stale scan or a model
+            /// inventing a place, and a step with no location is the model saying "nowhere".
+            /// </summary>
+            public readonly int DroppedLocations;
+
+            public PlanAttempt(bool ok, bool cancelled, string failure, string backend, string model,
+                               string task, int placesOffered, bool hadRoomSummary,
+                               float latencySeconds, int steps, int groundedSteps,
+                               int droppedLocations)
+            {
+                Ok = ok;
+                Cancelled = cancelled;
+                Failure = failure ?? "";
+                Backend = backend ?? "";
+                Model = model ?? "";
+                Task = task ?? "";
+                PlacesOffered = placesOffered;
+                HadRoomSummary = hadRoomSummary;
+                LatencySeconds = latencySeconds;
+                Steps = steps;
+                GroundedSteps = groundedSteps;
+                DroppedLocations = droppedLocations;
+            }
+        }
+
+        /// <summary>
+        /// Raised once per <see cref="PlanAsync"/>, whatever happened.
+        ///
+        /// Shared by the study recorder and the offline plan harness on purpose: they want the
+        /// same numbers about the same event, and a second measurement path built for the
+        /// harness would be a second thing that could disagree with what the participant
+        /// sessions recorded.
+        /// </summary>
+        public event Action<PlanAttempt> OnPlanAttempt;
+
         /// <summary>How long to wait before looking for a missing key again. See ResolveKey.</summary>
         private const float KeyRetryIntervalSeconds = 5f;
 
@@ -224,54 +311,123 @@ namespace ConvaiRoom
         /// </summary>
         public string Endpoint => ResolveEndpoint();
 
-        /// <summary>Plans <paramref name="task"/> against the places in <paramref name="places"/>.</summary>
+        /// <summary>
+        /// Plans <paramref name="task"/> against the places in <paramref name="places"/>.
+        ///
+        /// Every exit reports itself through <see cref="OnPlanAttempt"/>, from the finally, so
+        /// the guard clauses that answer without a request are timed alongside the ones that
+        /// wait for a model. Those near-instant refusals matter: "no planner API key on this
+        /// device" answered in a millisecond and a genuine forty-second answer are both things
+        /// a participant experienced, and a latency distribution that silently contains only
+        /// the second kind describes a planner nobody used.
+        /// </summary>
         public async Task<PlanResult> PlanAsync(
             string task,
             IReadOnlyList<RoomTaskVocabulary.Place> places,
             string roomSummary,
             CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(task))
-                return PlanResult.Failed("no task was given");
+            // Stopwatch rather than Time.realtimeSinceStartup: monotonic, and it does not care
+            // which thread reads it. The continuation after the await lands back on Unity's
+            // context in practice, but a latency measurement is not the place to depend on that.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
 
-            // Only Anthropic needs a secret. Asking for one on the Ollama path would refuse to
-            // plan over a key nothing is going to send.
-            string key = null;
+            var result = PlanResult.Failed("");
+            var cancelled = false;
+            var dropped = 0;
 
-            if (backend == PlannerBackend.Anthropic)
-            {
-                key = ResolveKey();
-                if (string.IsNullOrEmpty(key)) return PlanResult.Failed("no planner API key on this device");
-            }
-            else if (string.IsNullOrWhiteSpace(ollamaUrl) || string.IsNullOrWhiteSpace(ollamaModel))
-            {
-                return PlanResult.Failed("the local planner has no address or model set");
-            }
-
-            var body = BuildRequest(task, places, roomSummary);
-
-            if (verboseLogging)
-                Debug.Log($"{Tag} Planning '{task}' against {places.Count} places " +
-                          $"via {BackendName} ({ActiveModel}).");
-
-            string raw;
             try
             {
-                raw = await PostAsync(body, key, cancellationToken);
+                if (string.IsNullOrWhiteSpace(task))
+                    return result = PlanResult.Failed("no task was given");
+
+                // Only Anthropic needs a secret. Asking for one on the Ollama path would refuse
+                // to plan over a key nothing is going to send.
+                string key = null;
+
+                if (backend == PlannerBackend.Anthropic)
+                {
+                    key = ResolveKey();
+                    if (string.IsNullOrEmpty(key))
+                        return result = PlanResult.Failed("no planner API key on this device");
+                }
+                else if (string.IsNullOrWhiteSpace(ollamaUrl) || string.IsNullOrWhiteSpace(ollamaModel))
+                {
+                    return result = PlanResult.Failed("the local planner has no address or model set");
+                }
+
+                var body = BuildRequest(task, places, roomSummary);
+
+                if (verboseLogging)
+                    Debug.Log($"{Tag} Planning '{task}' against {places.Count} places " +
+                              $"via {BackendName} ({ActiveModel}).");
+
+                string raw;
+                try
+                {
+                    raw = await PostAsync(body, key, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Flagged before the rethrow so the finally can tell a cancellation from a
+                    // failure. They are not the same event: one is the participant or the SDK
+                    // giving up, the other is the planner not answering.
+                    cancelled = true;
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"{Tag} The planning request failed: {ex.Message}");
+                    return result = PlanResult.Failed("could not reach the planner");
+                }
+
+                if (verboseLogging) Debug.Log($"{Tag} Raw reply: {raw}");
+
+                return result = Parse(raw, places, out dropped);
             }
-            catch (OperationCanceledException)
+            finally
             {
-                throw;
+                clock.Stop();
+                ReportAttempt(result, cancelled, task, places, roomSummary,
+                              (float)clock.Elapsed.TotalSeconds, dropped);
+            }
+        }
+
+        /// <summary>
+        /// Raises <see cref="OnPlanAttempt"/>, and never lets a listener break a plan.
+        ///
+        /// This runs in a finally on the path that returns the plan to the character. A
+        /// subscriber that throws -- a recorder whose disk is full, a harness with a bug --
+        /// would otherwise replace whatever PlanAsync was about to return or rethrow with its
+        /// own exception, and the instrumentation would have destroyed the thing it measures.
+        /// </summary>
+        private void ReportAttempt(PlanResult result, bool cancelled, string task,
+                                   IReadOnlyList<RoomTaskVocabulary.Place> places,
+                                   string roomSummary, float seconds, int dropped)
+        {
+            if (OnPlanAttempt == null) return;
+
+            try
+            {
+                var steps = result.Steps?.Count ?? 0;
+                var grounded = 0;
+
+                if (result.Steps != null)
+                {
+                    foreach (var step in result.Steps)
+                        if (!string.IsNullOrEmpty(step.Where)) grounded++;
+                }
+
+                OnPlanAttempt.Invoke(new PlanAttempt(
+                    result.Ok, cancelled, result.Failure, BackendName, ActiveModel, task,
+                    places?.Count ?? 0, !string.IsNullOrWhiteSpace(roomSummary),
+                    seconds, steps, grounded, dropped));
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"{Tag} The planning request failed: {ex.Message}");
-                return PlanResult.Failed("could not reach the planner");
+                Debug.LogError($"{Tag} A plan-attempt listener threw, and was ignored so the " +
+                               $"plan itself survives: {ex}");
             }
-
-            if (verboseLogging) Debug.Log($"{Tag} Raw reply: {raw}");
-
-            return Parse(raw, places);
         }
 
         // -----------------------------------------------------------------
@@ -744,8 +900,20 @@ namespace ConvaiRoom
             return trimmed.Substring(start, end - start + 1);
         }
 
-        private PlanResult Parse(string raw, IReadOnlyList<RoomTaskVocabulary.Place> places)
+        /// <summary>
+        /// Reads the reply into steps, and says how many locations it had to throw away.
+        ///
+        /// <paramref name="dropped"/> is an out parameter rather than a field because this is
+        /// called from an async method that can have more than one plan in flight -- a field
+        /// would be a count belonging to whichever request finished last.
+        /// </summary>
+        private PlanResult Parse(string raw, IReadOnlyList<RoomTaskVocabulary.Place> places,
+                                 out int dropped)
         {
+            // Set once, up front, so every early return below carries a defined count rather
+            // than each of them having to remember to zero it.
+            dropped = 0;
+
             if (string.IsNullOrWhiteSpace(raw))
                 return PlanResult.Failed("the planner returned nothing");
 
@@ -796,6 +964,12 @@ namespace ConvaiRoom
 
                 if (!string.IsNullOrEmpty(claimed) && where == null)
                 {
+                    // Counted as well as logged. A warning in logcat is not a measurement, and
+                    // this is the only thing that separates "the model named a place the room
+                    // does not have" from "the model said nowhere" -- which look identical from
+                    // the step, and are a stale scan and a modelling result respectively.
+                    dropped++;
+
                     Debug.LogWarning($"{Tag} Dropped the location '{claimed}' from a step -- " +
                                      $"the room does not have it any more.");
                 }

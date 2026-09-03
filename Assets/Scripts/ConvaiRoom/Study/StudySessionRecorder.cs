@@ -66,6 +66,13 @@ namespace ConvaiRoom
         private enum Tool
         {
             Reference,
+
+            /// <summary>Opens a task, or closes the one that is open. See <see cref="ToggleTask"/>.</summary>
+            Task,
+
+            /// <summary>One press, one assist. Only useful while a task is open.</summary>
+            Assist,
+
             Truth,
             End,
             Leave
@@ -123,6 +130,10 @@ namespace ConvaiRoom
                  "Without one the REF BLOCK control says so rather than disappearing.")]
         public ReferenceTrialRunner trials;
 
+        [Tooltip("Optional. Only listened to, never driven: every planning attempt is timed and " +
+                 "recorded, including the ones that fail or get cancelled.")]
+        public RoomPlannerClient planner;
+
         [Header("Participants")]
         [Tooltip("How many participant ids to offer, as P01..Pnn. Cycling wraps.")]
         public int participantCount = 16;
@@ -178,6 +189,9 @@ namespace ConvaiRoom
 
         /// <summary>The run currently open, or null between runs.</summary>
         private ScanRunEntry _openRun;
+
+        /// <summary>The task currently open, or null when none is. Drives the TASK toggle.</summary>
+        private TaskEntry _openTask;
 
         /// <summary>
         /// The Convai turn counter. Owned rather than a component of its own, so the scene
@@ -449,22 +463,30 @@ namespace ConvaiRoom
             }
         }
 
-        private static string ToolName(Tool tool)
+        private string ToolName(Tool tool)
         {
             switch (tool)
             {
                 case Tool.Reference: return "REF BLOCK";
+                case Tool.Task: return _openTask != null ? "TASK (open)" : "TASK";
+                case Tool.Assist: return "ASSIST";
                 case Tool.Truth: return "MARK TRUTH";
                 case Tool.End: return "END SESSION";
                 default: return "LEAVE STUDY";
             }
         }
 
-        private static string ToolAction(Tool tool)
+        private string ToolAction(Tool tool)
         {
             switch (tool)
             {
                 case Tool.Reference: return "OPEN TRIALS";
+
+                // The label says which way the toggle will go, so the facilitator is never
+                // guessing whether a press starts or stops the clock they are timing.
+                case Tool.Task: return _openTask != null ? "END TASK" : "START TASK";
+
+                case Tool.Assist: return "MARK ASSIST";
                 case Tool.Truth: return "OPEN MARKING";
                 case Tool.End: return "END IT";
                 default: return "LEAVE";
@@ -482,6 +504,12 @@ namespace ConvaiRoom
 
                 case Tool.Truth:
                     return truthMarker == null ? "no marker in scene" : "";
+
+                // Greyed rather than refused after the press: an assist with no task to belong
+                // to has nowhere to be counted, and being told so before reaching for the
+                // control is better than after.
+                case Tool.Assist:
+                    return _openTask == null ? "no task open" : "";
 
                 default:
                     return "";
@@ -518,6 +546,14 @@ namespace ConvaiRoom
                     OpenReference();
                     break;
 
+                case Tool.Task:
+                    ToggleTask();
+                    break;
+
+                case Tool.Assist:
+                    MarkAssist();
+                    break;
+
                 case Tool.Truth:
                     if (truthMarker == null)
                     {
@@ -541,6 +577,117 @@ namespace ConvaiRoom
                     _status = "recording";
                     break;
             }
+        }
+
+        // -----------------------------------------------------------------
+        // The task
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Opens a task, or closes the open one.
+        ///
+        /// Bounded by hand because nothing in the app means "the task began". The participant
+        /// says a sentence; the planner may or may not be involved, and a plan request is not
+        /// the start of the task any more than it is the end of it. What this supplies is the
+        /// two instants, on the same clock as the plans and the utterances, so the interview can
+        /// be run against the recording rather than against somebody's memory.
+        ///
+        /// Closing counts as completed. A task abandoned rather than finished is closed the
+        /// same way and then said so on the sheet -- there is one task per participant, so the
+        /// flag is a marker for the interview, not a completion rate. Four of these is not a
+        /// percentage and the write-up should not make it one.
+        /// </summary>
+        private void ToggleTask()
+        {
+            if (_session == null) return;
+
+            if (_openTask != null)
+            {
+                _openTask.tEnd = T;
+                _openTask.completed = true;
+
+                Note("task-done", $"{_openTask.tEnd - _openTask.tStart:F1}s, " +
+                                  $"{_openTask.assists} assist(s)");
+
+                _status = $"task ended, {_openTask.assists} assist(s)";
+                _openTask = null;
+
+                Flush();
+                return;
+            }
+
+            _openTask = new TaskEntry { tStart = T };
+            _session.tasks.Add(_openTask);
+
+            Note("task-start", $"task {_session.tasks.Count}");
+            _status = "task started";
+
+            Flush();
+        }
+
+        /// <summary>
+        /// One facilitator intervention.
+        ///
+        /// A count and an instant, with no text -- what the assist WAS goes on the sheet, and
+        /// the thing paper cannot supply is when it happened relative to the plan that
+        /// prompted it. Deliberately not a quality score: assists are not comparable across
+        /// facilitators, and at one task per participant a count is as much as the design
+        /// supports.
+        /// </summary>
+        private void MarkAssist()
+        {
+            if (_session == null || _openTask == null)
+            {
+                _status = "no task open to assist";
+                return;
+            }
+
+            _openTask.assists++;
+
+            Note("assist", $"assist {_openTask.assists} at {T:F1}s");
+            _status = $"assist {_openTask.assists} marked";
+
+            Flush();
+        }
+
+        /// <summary>
+        /// One planning attempt, however it ended.
+        ///
+        /// The task text is deliberately reduced to its length on the way in. In a participant
+        /// session the task is the player's own words, arriving through the Plan Task action's
+        /// parameter, and participant speech does not go on disk anywhere in this study. The
+        /// offline harness subscribes to the same event and keeps its tasks in full, because
+        /// those are researcher-authored prompts.
+        ///
+        /// Flushed, unlike a speech event: a plan is rare, slow, and the thing most likely to
+        /// be the last event before somebody takes the headset off in frustration.
+        /// </summary>
+        private void HandlePlanAttempt(RoomPlannerClient.PlanAttempt attempt)
+        {
+            if (_session == null) return;
+
+            _session.plans.Add(new PlanAttemptEntry
+            {
+                t = T,
+                ok = attempt.Ok,
+                cancelled = attempt.Cancelled,
+                failure = attempt.Failure ?? "",
+                backend = attempt.Backend ?? "",
+                model = attempt.Model ?? "",
+                latency = attempt.LatencySeconds,
+                placesOffered = attempt.PlacesOffered,
+                hadRoomSummary = attempt.HadRoomSummary,
+                steps = attempt.Steps,
+                groundedSteps = attempt.GroundedSteps,
+                droppedLocations = attempt.DroppedLocations,
+                taskCharacters = (attempt.Task ?? "").Length
+            });
+
+            if (verboseLogging)
+                Debug.Log($"{Tag} Plan attempt: {(attempt.Ok ? "ok" : attempt.Cancelled ? "cancelled" : "failed")} " +
+                          $"in {attempt.LatencySeconds:F1}s, {attempt.GroundedSteps}/{attempt.Steps} grounded.");
+
+            Flush();
         }
 
         // -----------------------------------------------------------------
@@ -667,6 +814,7 @@ namespace ConvaiRoom
             if (truthMarker == null) truthMarker = FindAnyObjectByType<RoomTruthMarker>();
             if (observationLog == null) observationLog = FindAnyObjectByType<ScanObservationLog>();
             if (trials == null) trials = FindAnyObjectByType<ReferenceTrialRunner>();
+            if (planner == null) planner = FindAnyObjectByType<RoomPlannerClient>();
 
             // One clock for the whole file. The runner would otherwise stamp its rows with
             // realtimeSinceStartup while everything else here is seconds since the session
@@ -703,6 +851,8 @@ namespace ConvaiRoom
                 panel.OnReported += HandleReported;
             }
 
+            if (planner != null) planner.OnPlanAttempt += HandlePlanAttempt;
+
             if (trials == null) return;
 
             trials.OnTrialFinished += HandleTrialFinished;
@@ -717,6 +867,8 @@ namespace ConvaiRoom
                 panel.OnStageChanged -= HandleStageChanged;
                 panel.OnReported -= HandleReported;
             }
+
+            if (planner != null) planner.OnPlanAttempt -= HandlePlanAttempt;
 
             if (trials != null)
             {
@@ -773,6 +925,7 @@ namespace ConvaiRoom
             _milestoned.Clear();
             _saveIndex = 0;
             _openRun = null;
+            _openTask = null;
 
             _session = new StudySession
             {
@@ -839,6 +992,17 @@ namespace ConvaiRoom
             if (_session == null) return;
 
             CloseRun();
+
+            // A task still open at session end is stamped so its duration is known, but NOT
+            // marked completed -- the facilitator never called it finished. Only a session that
+            // ended without reaching here at all, a flat battery or a crash, leaves tEnd
+            // negative, and that stays the signal for one that was cut off entirely.
+            if (_openTask != null)
+            {
+                _openTask.tEnd = T;
+                Note("task-open-at-end", $"{_openTask.tEnd - _openTask.tStart:F1}s, not completed");
+                _openTask = null;
+            }
 
             if (observationLog != null && observationLog.IsOpen)
             {
@@ -1257,6 +1421,25 @@ namespace ConvaiRoom
             s.characterUtterances = _speech.CharacterUtterances;
             s.characterInterruptions = _speech.Interruptions;
             s.llmNoResponses = _speech.NoResponses;
+
+            s.tasksStarted = _session.tasks.Count;
+            s.tasksCompleted = 0;
+            s.assists = 0;
+
+            foreach (var task in _session.tasks)
+            {
+                if (task.completed) s.tasksCompleted++;
+                s.assists += task.assists;
+            }
+
+            s.planAttempts = _session.plans.Count;
+            s.planFailures = 0;
+
+            // Cancellations are not failures. The caller gave up -- usually the SDK's action
+            // timeout, sometimes the participant -- and counting those against the planner
+            // would make it look worse the more often somebody walked away.
+            foreach (var plan in _session.plans)
+                if (!plan.ok && !plan.cancelled) s.planFailures++;
         }
 
         /// <summary>
@@ -1315,6 +1498,21 @@ namespace ConvaiRoom
             // happened yet, on a readout with five other things competing for the same space.
             if (_speech.ParticipantUtterances > 0 || _speech.CharacterUtterances > 0)
                 _builder.AppendLine(_speech.Describe());
+
+            // The open-task line is the one worth the space: a task clock left running because
+            // somebody forgot to press END TASK is invisible everywhere else, and it silently
+            // swallows the gap before the next one.
+            if (_openTask != null)
+                _builder.Append("task      : OPEN ").Append((T - _openTask.tStart).ToString("F0"))
+                        .Append("s, ").Append(_openTask.assists).Append(" assist(s)").AppendLine();
+            else if (_session.tasks.Count > 0)
+                _builder.Append("task      : ").Append(_session.tasks.Count)
+                        .Append(" done, ").Append(_session.summary.assists)
+                        .Append(" assist(s)").AppendLine();
+
+            if (_session.plans.Count > 0)
+                _builder.Append("plans     : ").Append(_session.plans.Count).Append(" attempt(s), ")
+                        .Append(_session.summary.planFailures).Append(" failed").AppendLine();
 
             // Only once there is a block. Before that the line would be a permanent "trials:
             // none built" on a readout with four other things competing for the same few rows.

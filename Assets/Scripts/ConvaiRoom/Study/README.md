@@ -87,7 +87,8 @@ All of it is on the panel and the controller. There is no keyboard path, by desi
 5. The study screen is reached again from the **third slot at Home and at Character**, which
    now reads `STUDY`. It has:
    - `MARK NOTE` — one press, stamps the instant. Always in the same place.
-   - `NEXT:` — cycles `REF BLOCK` / `MARK TRUTH` / `END SESSION` / `LEAVE STUDY`
+   - `NEXT:` — cycles `REF BLOCK` / `TASK` / `ASSIST` / `MARK TRUTH` / `END SESSION` /
+     `LEAVE STUDY`
    - the action slot, which performs whichever the middle slot names
 6. **`END SESSION`** when done (`NEXT: END SESSION` → `END IT`).
 
@@ -156,6 +157,43 @@ turn it on only once a pilot has established what the real ceiling is.
 The panel line reads `convai : 12 turns, 28 left of 40`. **`NOT COUNTING` in that line means
 the counter never attached** — a count of zero because nobody spoke and a count of zero because
 nothing was listening look identical otherwise.
+
+---
+
+## The task, and every plan attempt
+
+From the study screen: `NEXT: TASK` → `START TASK` / `END TASK`, and `NEXT: ASSIST` →
+`MARK ASSIST` while one is open. The action slot's label always says which way the toggle will
+go, so you are never guessing whether a press starts or stops the clock.
+
+Task boundaries are set by hand because **nothing in the app means "the task began"** — the
+participant says a sentence, and a plan request is neither the start nor the end of the task.
+What the panel supplies is the two instants on the same clock as the plans and the utterances.
+
+**A task left open is called out on the details panel** (`task: OPEN 214s`). A forgotten
+`END TASK` is otherwise invisible and silently swallows the gap before whatever comes next.
+Ending the session with one open stamps its end time but does **not** mark it completed.
+
+`plans[]` gets a row for **every** attempt, including failures and cancellations. A latency
+distribution built from successes alone describes a faster planner than the one anybody used:
+the slow attempts are exactly the ones that time out or get abandoned. Cancellations are
+counted apart from failures — the caller gave up, which is not the planner failing.
+
+Three things this records that nothing did before:
+
+- **Latency.** `PlanAsync` was never timed; only the request timeout bounded it. This is the
+  number a person waiting in a headset cares about most.
+- **`droppedLocations`.** The "dropped the location" warning was logged and never counted, and
+  `step.HasPlace == false` cannot tell *"the planner said nowhere"* from *"the planner named a
+  place the room no longer has"* — a modelling result and a stale scan respectively.
+- **The condition, not just the outcome.** `placesOffered` **and** `hadRoomSummary` together
+  are what mark an ungrounded attempt. Emptying the place list is not enough on its own: a
+  summary naming the furniture reimports the vocabulary the ablation removes.
+
+**The task text is not stored** — only `taskCharacters`. In a participant session the task is
+the player's own words arriving through the Plan Task action's parameter, which makes it
+participant speech. The offline plan harness subscribes to the same event and keeps its tasks
+in full, because those are researcher-authored prompts.
 
 ---
 

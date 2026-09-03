@@ -114,6 +114,17 @@ namespace ConvaiRoom
         public int characterUtterances;
         public int characterInterruptions;
         public int llmNoResponses;
+
+        /// <summary>
+        /// Task and planner totals. <c>planFailures</c> counts attempts that came back with
+        /// nothing, which at one task per participant is a count and not a rate -- the write-up
+        /// should not turn four of these into a percentage.
+        /// </summary>
+        public int tasksStarted;
+        public int tasksCompleted;
+        public int assists;
+        public int planAttempts;
+        public int planFailures;
     }
 
     /// <summary>One period of collecting, from entering the scanning stage to leaving it.</summary>
@@ -382,6 +393,97 @@ namespace ConvaiRoom
         public int characters;
     }
 
+    /// <summary>
+    /// One attempt at a plan, however it ended.
+    ///
+    /// Failures and cancellations are rows here too. A latency distribution built only from the
+    /// successes describes a faster planner than the one anybody used: the slow attempts are
+    /// exactly the ones that time out or get abandoned, so dropping them makes the number look
+    /// better the worse the planner behaves.
+    ///
+    /// <see cref="placesOffered"/> and <see cref="hadRoomSummary"/> together record the
+    /// condition, not just the outcome. The ungrounded arm is an empty place list AND a
+    /// withheld summary -- a summary naming the furniture reimports the vocabulary the ablation
+    /// was removing -- so one field could not describe it.
+    /// </summary>
+    [Serializable]
+    public class PlanAttemptEntry
+    {
+        public float t;
+
+        public bool ok;
+
+        /// <summary>The caller gave up. Neither a success nor a failure of the planner.</summary>
+        public bool cancelled;
+
+        /// <summary>Short reason, from the planner. Empty when <see cref="ok"/>.</summary>
+        public string failure = "";
+
+        public string backend = "";
+        public string model = "";
+
+        /// <summary>
+        /// How long the participant actually waited, including the attempts that never
+        /// answered. This was previously not measured anywhere -- only the request timeout
+        /// bounded it -- and it is the number a person in a headset cares about most.
+        /// </summary>
+        public float latency;
+
+        public int placesOffered;
+        public bool hadRoomSummary;
+
+        public int steps;
+
+        /// <summary>Steps that came back with a place the room actually has.</summary>
+        public int groundedSteps;
+
+        /// <summary>
+        /// Locations thrown away because the room no longer had them. Counted apart from
+        /// ungrounded steps on purpose: a dropped location is a stale scan or an invented
+        /// place, and a step with no location is the planner saying "nowhere". The step alone
+        /// cannot tell them apart, and before this they were both simply absent.
+        /// </summary>
+        public int droppedLocations;
+
+        /// <summary>
+        /// How long the task request was, in characters -- NOT the task itself.
+        ///
+        /// In a participant session the task arrives as the player's own words, through the
+        /// Plan Task action's parameter. That makes it participant speech, and participant
+        /// speech does not go on disk anywhere in this study. The offline plan harness writes
+        /// its tasks in full, because those are researcher-authored prompts rather than
+        /// anybody's utterance.
+        /// </summary>
+        public int taskCharacters;
+    }
+
+    /// <summary>
+    /// One task attempt, bounded by the facilitator.
+    ///
+    /// Started and ended by hand rather than inferred, because there is no signal in the app
+    /// that means "the task began" -- the participant says a sentence and the planner may or
+    /// may not be involved. What the panel supplies is the instant, on the same clock as
+    /// everything else, which is the part a paper sheet cannot do.
+    /// </summary>
+    [Serializable]
+    public class TaskEntry
+    {
+        public float tStart;
+
+        /// <summary>Negative while the task is still open, so an interrupted session is obvious.</summary>
+        public float tEnd = -1f;
+
+        /// <summary>
+        /// Times the facilitator had to step in. Not a quality score and not comparable across
+        /// facilitators -- it is a marker for the interview to be about, and a count of them is
+        /// as much as one task per participant can support.
+        /// </summary>
+        public int assists;
+
+        /// <summary>Whether the facilitator called it finished rather than abandoned.</summary>
+        public bool completed;
+    }
+
     /// <summary>One line from the panel's own outcome channel, success or refusal.</summary>
     [Serializable]
     public class ReportEntry
@@ -457,6 +559,8 @@ namespace ConvaiRoom
         public List<ConvaiTurnEntry> convaiTurns = new List<ConvaiTurnEntry>();
 
         public List<SpeechEventEntry> speech = new List<SpeechEventEntry>();
+        public List<TaskEntry> tasks = new List<TaskEntry>();
+        public List<PlanAttemptEntry> plans = new List<PlanAttemptEntry>();
 
         public ReferenceBlock referenceBlock = new ReferenceBlock();
         public List<ReferenceTrialEntry> referenceTrials = new List<ReferenceTrialEntry>();

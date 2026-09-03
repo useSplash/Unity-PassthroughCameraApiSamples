@@ -1,11 +1,18 @@
-# Handoff — study instrumentation, phase 4
+# Handoff — study instrumentation, phase 5
 
-Read this first, then start at **Build order, item 4**. Items 1, 2 and 3 are done.
+Read this first, then start at **Build order, item 5** — which is now the one that matters
+most. Items 1–4 are done.
 
 ## Where things stand
 
-Branch **`user-test-metrics`** (off `refinement`). Items 1–3 are done and compile clean.
-Phases 1 and 2 are committed (`f118cc1`); item 3 is uncommitted in the working tree.
+Branch **`user-test-metrics`** (off `refinement`). Items 1–4 are done and compile clean.
+Items 1–2 are committed (`f118cc1`), item 3 (`8e35b17`); item 4 is uncommitted in the tree.
+
+**Item 5 carries most of the study's quantitative weight.** At n = 4 the participant sessions
+support a within-participant probe and a qualitative account, and nothing more; the plan corpus
+is unaffected by the participant count and is where the numbers come from. `OnPlanAttempt`
+already gives it latency, groundedness and the dropped-location count — item 4 built it once so
+item 5 could use it without a second measurement path that could disagree.
 
 **Decisions taken (2026-09-03), do not reopen:**
 
@@ -91,12 +98,21 @@ streamed chunk.
 
 **It does not need the transcript system** — see the corrected facts below.
 
-### 4. Task markers and the planner event
+### 4. Task markers and the planner event — **DONE**
 
-Panel controls for task start/end and assists. One `OnPlanAttempt` event on
-`RoomPlannerClient`, raised in a `finally` so success, failure and `OperationCanceledException`
-are all timed, carrying backend, model, places offered, latency, steps, grounded steps and
-the dropped-location count. Shared with item 5 — build once, use twice.
+`RoomPlannerClient.OnPlanAttempt` is raised from a `finally`, so the guard clauses that answer
+without a request are timed alongside the ones that wait for a model. Cancellations are flagged
+before the rethrow and counted apart from failures. `Parse` gained an `out int dropped` — an
+out parameter rather than a field, because more than one plan can be in flight and a field
+would hold whichever finished last. Listener exceptions are swallowed with a LogError so
+instrumentation cannot destroy the plan it is measuring.
+
+Panel: the session screen's cycle gained `TASK` (a toggle whose label says which way it will
+go) and `ASSIST` (greyed with "no task open" rather than refused after the press).
+
+**Still not recorded: steps advanced.** It is in the protocol's `plans[]` yields and it is
+blocked by the `RoomTaskPlan` bug below, which is a behaviour change to shipped code and was
+left out of item 4's stated scope deliberately. Do it as part of item 5 or as its own thing.
 
 ### 5. Offline plan harness — no headset needed
 
@@ -188,10 +204,14 @@ These cost real time to work out. They are verified against the current code.
 - Study mode is a sub-mode flag, **not new `Stage` members** — adding stages would invalidate
   any claim about the shipped six-stage flow.
 
-**Planner**
-- `PlanAsync` (`RoomPlannerClient.cs:228`) is **never timed**; only `request.timeout` bounds it.
-- The `"Dropped the location '{x}' from a step"` warning (`:799`) is **never counted**, and
-  `step.HasPlace == false` cannot distinguish "planner said nowhere" from "location dropped".
+**Planner** — the first two were fixed by item 4; kept here because they explain the shape of
+`OnPlanAttempt` and the offline harness inherits both.
+- ~~`PlanAsync` is never timed~~ — it is now, from a `finally`, including the guard clauses
+  that answer in a millisecond without a request. Those belong in the distribution: a latency
+  figure built only from real round trips describes a planner nobody used.
+- ~~The dropped-location warning is never counted~~ — `droppedLocations` now carries it, and it
+  is the only thing separating "the planner said nowhere" from "the planner named a place the
+  room no longer has". Keep them apart in the analysis.
 - An ungrounded condition is ~3 lines: pass an empty place list **and withhold `RoomSummary`**
   (a summary naming the furniture reimports the vocabulary the ablation removes).
   `AppendSchema` and `BuildSystemPrompt` already handle the zero-place case deliberately.

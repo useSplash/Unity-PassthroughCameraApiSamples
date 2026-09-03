@@ -153,6 +153,35 @@ namespace ConvaiRoomEditor
                 t = 183.9f, speaker = "character", kind = "started", messageId = "utt-3", characters = 0
             });
 
+            session.tasks.Add(new TaskEntry
+            {
+                tStart = 400f, tEnd = 640f, assists = 2, completed = true
+            });
+
+            // A task the session ended on top of: stamped, but never called finished.
+            session.tasks.Add(new TaskEntry
+            {
+                tStart = 700f, tEnd = 760f, assists = 0, completed = false
+            });
+
+            session.plans.Add(new PlanAttemptEntry
+            {
+                t = 410f, ok = true, cancelled = false, failure = "",
+                backend = "anthropic", model = "claude-haiku-4-5",
+                latency = 4.75f, placesOffered = 22, hadRoomSummary = true,
+                steps = 6, groundedSteps = 4, droppedLocations = 1, taskCharacters = 48
+            });
+
+            // The ungrounded arm: no places AND no summary. Both fields are needed to describe
+            // it, which is why the round trip checks them together.
+            session.plans.Add(new PlanAttemptEntry
+            {
+                t = 500f, ok = false, cancelled = true, failure = "",
+                backend = "ollama", model = "qwen2.5:7b-instruct",
+                latency = 31.5f, placesOffered = 0, hadRoomSummary = false,
+                steps = 0, groundedSteps = 0, droppedLocations = 0, taskCharacters = 48
+            });
+
             session.summary.participantUtterances = 1;
             session.summary.characterUtterances = 1;
             session.summary.characterInterruptions = 0;
@@ -261,6 +290,39 @@ namespace ConvaiRoomEditor
 
             Assert("session: speech counts kept",
                    back.summary.participantUtterances == 1 && back.summary.characterUtterances == 1);
+
+            Assert("session: tasks kept", back.tasks.Count == 2);
+            Assert("session: plans kept", back.plans.Count == 2);
+
+            // completed=false is the default a bool round-trips to, so a lost field would look
+            // exactly like an abandoned task. Both values are checked for that reason.
+            Assert("session: task completed-true survives",
+                   back.tasks.Count == 2 && back.tasks[0].completed);
+            Assert("session: task completed-false survives",
+                   back.tasks.Count == 2 && !back.tasks[1].completed);
+            Assert("session: assists kept", back.tasks.Count == 2 && back.tasks[0].assists == 2);
+
+            // Cancelled and failed are different outcomes and must not collapse into "not ok".
+            Assert("session: plan cancelled kept apart from failed",
+                   back.plans.Count == 2 && !back.plans[1].ok && back.plans[1].cancelled &&
+                   !back.plans[0].cancelled);
+
+            Assert("session: plan latency kept",
+                   back.plans.Count == 2 && Mathf.Abs(back.plans[0].latency - 4.75f) < 1e-4f);
+
+            // The dropped-location count is the whole reason this event exists: before it, a
+            // step with no place could not be told from one whose place was thrown away.
+            Assert("session: droppedLocations kept apart from groundedSteps",
+                   back.plans.Count == 2 && back.plans[0].droppedLocations == 1 &&
+                   back.plans[0].groundedSteps == 4 && back.plans[0].steps == 6);
+
+            // The ungrounded arm needs both fields; either one alone describes a different run.
+            Assert("session: ungrounded condition round-trips as both",
+                   back.plans.Count == 2 && back.plans[1].placesOffered == 0 &&
+                   !back.plans[1].hadRoomSummary);
+
+            Assert("session: task text is a length, not text",
+                   back.plans.Count == 2 && back.plans[0].taskCharacters == 48);
 
             // Nested [Serializable] inside a list element -- the shape most likely to come
             // back null without anyone noticing.
