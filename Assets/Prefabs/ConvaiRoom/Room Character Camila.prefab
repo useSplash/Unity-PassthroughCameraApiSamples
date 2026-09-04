@@ -11164,8 +11164,10 @@ MonoBehaviour:
   _definitions:
   - ActionName: Move To
     Description: Walk to the named place, object, or person and stop at a natural
-      conversational distance. Use this when the character is asked to approach or
-      go to a specific target.
+      conversational distance. Run this when the player asks you to go to, walk to,
+      approach, or head over to something, including somewhere they have just
+      pointed at. If they only name an object without asking you to move, use Look
+      At instead.
     Parameters: []
     TargetRequirement: 1
     Executor: {fileID: 205058200494541277}
@@ -11178,9 +11180,12 @@ MonoBehaviour:
     _disabled: 0
     _category: 
   - ActionName: Look At
-    Description: The player is indicating which object in the room they mean. They
-      are NOT asking you to move, walk, fetch, or do anything with it. Only note
-      which one they are referring to.
+    Description: Note which object in the room the player means, so that this one,
+      that one and it refer to the right thing afterwards. Run this when they name
+      or point out an object without asking for anything to be done to it. Set
+      object to the words they used. This only notes the object and never moves
+      you. If they ask you to go to it, walk to it or approach it, use Move To
+      instead.
     Parameters:
     - Name: object
       Description: The object as the player named it. May be an alias.
@@ -11198,15 +11203,17 @@ MonoBehaviour:
     _disabled: 0
     _category: 
   - ActionName: Plan Task
-    Description: The player is asking how to do something, or to be shown how. Use
-      this to work out the steps before answering, and pass what they want to do
-      as the task. Do not use it for questions about the room or about you. Always
-      run this rather than listing steps yourself. Steps you say without it are not
-      on the panel and cannot be stepped through, so a plan given straight from the
-      conversation leaves the player with nothing to follow.
+    Description: Work out the steps for something the player wants to get done,
+      then answer with them. Run this whenever they ask how to do something, to be
+      shown or walked through it, for a plan, or for help with a task or chore,
+      however they word it. Tidying, cleaning, setting up, organising, moving
+      things, fixing and cooking all count, including when the task is about this
+      room. Prefer running it over answering from your own knowledge. Skip it only
+      for questions that just ask what something is or what the room contains. To
+      continue a plan already underway, use Step Through Plan.
     Parameters:
     - Name: task
-      Description: What the player wants to do, in their own words.
+      Description: What the player wants to get done, in their own words.
       Type: 2
       Connector: 
       Choices: []
@@ -11221,11 +11228,11 @@ MonoBehaviour:
     _disabled: 0
     _category: 
   - ActionName: Step Through Plan
-    Description: Move through the steps of the plan already being followed. Use this
-      when asked for the next step, to go back, to repeat the current step, to start
-      over, or to jump to a numbered step. Always run this rather than reading the
-      next step out yourself. The panel only moves to the step the player is on when
-      this runs, so a step read straight from the plan leaves the panel behind.
+    Description: Move to another step of the plan already being followed, and read
+      it out. Run this when the player asks for the next step, to go back, to repeat
+      or hear the current step again, to start over from the beginning, to skip to
+      the last step, or to jump to a numbered step. Set direction to which way to
+      move. To work out a new plan, use Plan Task instead.
     Parameters:
     - Name: direction
       Description: Which way to move through the steps.

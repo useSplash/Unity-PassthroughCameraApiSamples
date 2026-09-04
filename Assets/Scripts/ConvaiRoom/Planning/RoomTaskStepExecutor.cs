@@ -19,12 +19,21 @@ namespace ConvaiRoom
     /// AUTHORING. One action on the character's Convai Action Config:
     ///
     ///     Action name   Step Through Plan
-    ///     Description   Move through the steps of the plan already being followed. Use this
-    ///                   for next, go back, repeat that, start over, or last step.
+    ///     Description   Move to another step of the plan already being followed, and read it
+    ///                   out. Run this when the player asks for the next step, to go back, to
+    ///                   repeat or hear the current step again, to start over from the
+    ///                   beginning, to skip to the last step, or to jump to a numbered step.
+    ///                   Set direction to which way to move. To work out a new plan, use Plan
+    ///                   Task instead.
     ///     Parameter     direction (choice) -- next, back, repeat, first, last
     ///     Target        None
     ///     Executor      this component
     ///     When finished Tell the player
+    ///
+    /// The last sentence is the half of a boundary whose other half lives on Plan Task, which
+    /// ends by pointing here. Both are needed: "start over" belongs to this action and "make me
+    /// a new plan" belongs to that one, and neither reading is obvious from a description that
+    /// only describes itself.
     ///
     /// Separately authored "Next Step" and "Previous Step" actions also work: when no direction
     /// parameter arrives, the action's own name is read instead. That fallback exists because

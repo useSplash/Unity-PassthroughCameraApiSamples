@@ -26,9 +26,16 @@ namespace ConvaiRoom
     /// AUTHORING. This needs an action on the character's Convai Action Config:
     ///
     ///     Action name   Plan Task
-    ///     Description   The player is asking how to do something, or to be shown how. Use this
-    ///                   to work out the steps before answering.
-    ///     Parameter     task (string) -- what they want to do, in their own words
+    ///     Description   Work out the steps for something the player wants to get done, then
+    ///                   answer with them. Run this whenever they ask how to do something, to
+    ///                   be shown or walked through it, for a plan, or for help with a task or
+    ///                   chore, however they word it. Tidying, cleaning, setting up,
+    ///                   organising, moving things, fixing and cooking all count, including
+    ///                   when the task is about this room. Prefer running it over answering
+    ///                   from your own knowledge. Skip it only for questions that just ask what
+    ///                   something is or what the room contains. To continue a plan already
+    ///                   underway, use Step Through Plan.
+    ///     Parameter     task (string) -- what they want to get done, in their own words
     ///     Target        None
     ///     Executor      this component
     ///     Timeout       45   (the request itself is bounded separately, and shorter)
@@ -37,6 +44,20 @@ namespace ConvaiRoom
     /// The last two are the ones that go wrong quietly. A timeout under the request's own
     /// budget has the action give up while the answer is still in the air; anything other than
     /// Tell The Player has her work out a plan and then decide not to mention it.
+    ///
+    /// THE DESCRIPTION IS THE ROUTER, and it has already been wrong once in a way that cost a
+    /// session. It used to read "Do not use it for questions about the room or about you",
+    /// which excluded the exact requests this exists for -- every task in a room app is about
+    /// the room, and "how do I clean up the room" was steered away by the one clause meant to
+    /// keep ordinary chat out. The replacement excludes what is genuinely not procedural
+    /// (naming and describing) rather than anything that mentions the room.
+    ///
+    /// It also used to end with three sentences of rationale aimed at whoever was authoring it
+    /// -- that steps said without the action never reach the panel. She reads that as an
+    /// instruction never to answer without the tool, so on the turn the action did not fire she
+    /// refused and invented a reason: "the planning tool is not responding", a sentence nothing
+    /// in this file can produce. Rationale belongs here, in the comment. The description gets
+    /// trigger conditions only.
     /// </summary>
     public class RoomTaskPlanner : ConvaiActionExecutor<RoomTaskPlanner.PlanTaskParameters>
     {

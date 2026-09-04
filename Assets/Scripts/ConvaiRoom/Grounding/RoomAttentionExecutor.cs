@@ -25,20 +25,25 @@ namespace ConvaiRoom
     /// AUTHORING. This needs an action on the character's Convai Action Config:
     ///
     ///     Action name   Look At
-    ///     Description   The player is indicating which object in the room they mean. They are
-    ///                   NOT asking you to move, walk, fetch, or do anything with it -- only to
-    ///                   note which one they are referring to.
+    ///     Description   Note which object in the room the player means, so that this one, that
+    ///                   one and it refer to the right thing afterwards. Run this when they
+    ///                   name or point out an object without asking for anything to be done to
+    ///                   it. Set object to the words they used. This only notes the object and
+    ///                   never moves you. If they ask you to go to it, walk to it or approach
+    ///                   it, use Move To instead.
     ///     Parameter     object (string) -- the object as the player named it
     ///     Target        None
     ///     Executor      this component
     ///     Timeout       10
     ///     When finished Tell the player
     ///
-    /// The description is worded that hard on purpose. The risk this action carries is not that
-    /// it fails -- it is that "the chair by the couch" routes to the existing Move To action
-    /// instead and she walks across the room mid-trial. Every clause about NOT moving is there
-    /// to hold the boundary against an action that has a much more natural claim on a sentence
-    /// with a furniture name in it. Pilot the routing before building a study block on it.
+    /// The last clause is worded the way it is on purpose. The risk this action carries is not
+    /// that it fails -- it is that "the chair by the couch" routes to the existing Move To
+    /// action instead and she walks across the room mid-trial. The boundary is held by NAMING
+    /// the other action rather than by piling up prohibitions: an earlier draft was three
+    /// clauses of what this is not, which left the model a rule to break and nowhere to put the
+    /// turn instead. Move To carries the reciprocal sentence. Pilot the routing before building
+    /// a study block on it.
     /// </summary>
     public class RoomAttentionExecutor : ConvaiActionExecutor<RoomAttentionExecutor.LookAtParameters>
     {
