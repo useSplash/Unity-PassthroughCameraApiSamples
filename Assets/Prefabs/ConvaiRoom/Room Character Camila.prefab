@@ -11172,7 +11172,7 @@ MonoBehaviour:
     TargetRequirement: 1
     Executor: {fileID: 205058200494541277}
     ExecutorTypeHint: ConvaiWalkToActionExecutor
-    TimeoutSeconds: 45
+    TimeoutSeconds: 30
     FailurePolicyOverride: 0
     AnswerDelivery: 0
     WaitForBotSpeech: 0
@@ -11276,11 +11276,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 53342448cba640daa8897ce007af311a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Actions.ConvaiActionDispatcher
-  _batchPolicy: 0
+  _batchPolicy: 1
   _failurePolicy: 0
   _speechGateTimeoutSeconds: 2
   _defaultStepTimeoutSeconds: 60
-  _cancelOnUserSpeech: 0
+  _cancelOnUserSpeech: 1
   _enablePerformanceReactions: 1
   _onBatchStarted:
     m_PersistentCalls:
