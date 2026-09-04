@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Convai.Modules.Vision;
+using Convai.Runtime.Actions;
 using Convai.Runtime.Components;
 using Convai.Runtime.Vision.Sources;
 using Meta.XR.MRUtilityKit;
@@ -101,6 +103,7 @@ namespace ConvaiRoom
             ReportScanFile();
             ReportReplay();
             ReportConvai();
+            ReportActions();
             ReportVision();
             ReportPlanner();
 
@@ -208,7 +211,8 @@ namespace ConvaiRoom
         /// </summary>
         private void ReportConvai()
         {
-            var present = character != null;
+            var live = Character();
+            var present = live != null;
 
             // Read from the voice component rather than the character: the permission is asked
             // for there, and it is the only thing that knows whether the answer was yes.
@@ -219,9 +223,170 @@ namespace ConvaiRoom
             // normal state at startup.
             Line("convai", present,
                  $"character={present} " +
-                 $"inConversation={present && character.IsInConversation} " +
+                 $"inConversation={present && live.IsInConversation} " +
                  $"session={state} " +
                  $"mic={(mic ? "yes" : "NO - she cannot hear you")}");
+        }
+
+        /// <summary>
+        /// The character now standing in the room, or null when there is none.
+        ///
+        /// Resolved per report rather than cached in <c>Awake</c>, and that is a fix rather
+        /// than a preference. The character is SPAWNED, so Awake here runs during phase 1 when
+        /// there is none: the cached lookup found nothing, held that nothing for the rest of
+        /// the session, and went on reporting <c>character=False</c> against a session that was
+        /// Ready and audibly talking. The verdict then read PROBLEM on all 390 reports of a
+        /// working run, which is how a probe stops being read at exactly the moment it matters.
+        ///
+        /// The voice's own character is preferred over a scene sweep because that is the one
+        /// the session was actually opened for. A sweep answers with whichever ConvaiCharacter
+        /// the scene happens to contain, which is the same answer right up until it is not.
+        /// </summary>
+        private ConvaiCharacter Character()
+        {
+            if (voice != null && voice.Character != null) return voice.Character;
+            if (character != null) return character;
+
+            return character = FindAnyObjectByType<ConvaiCharacter>();
+        }
+
+        /// <summary>
+        /// Which actions the Convai backend has actually been offered.
+        ///
+        /// THE LINE THIS PROBE WAS MISSING, and the reason three test sessions went on guesses.
+        /// An action authored on the character but dropped on the way to the wire is dropped
+        /// SILENTLY: <c>ConvaiActionConfigSource.BuildActionConfig</c> filters out every
+        /// definition whose executor will not run and says nothing about what it removed. From
+        /// inside the headset the result is a character who never performs that action, which
+        /// is indistinguishable from a backend that had it and chose something else -- and
+        /// those two have nothing in common as far as the fix goes. One is a prefab that needs
+        /// repairing, the other is wording.
+        ///
+        /// So this asks the SDK the same question the connect payload asks, through the same
+        /// public method, and prints the answer. A name that is authored on this character and
+        /// missing from <c>offered</c> is one the Convai Character can never be asked to
+        /// perform, however it is phrased at her.
+        ///
+        /// The validator is run alongside it because it is the half that says WHY. A dropped
+        /// action is nearly always an unbound executor, and the diagnostic names both the
+        /// action and the repair. Reported as an error only when something authored actually
+        /// failed to make it: a character in a scene with no action targets yet produces
+        /// warnings that are true and not worth a red line for the whole scan phase.
+        ///
+        /// Costs a config build and a validation pass every <see cref="intervalSeconds"/>.
+        /// That is real but small, it is the same order as the place sweep the planner line
+        /// already does, and neither is on a per-frame path.
+        /// </summary>
+        private void ReportActions()
+        {
+            var live = Character();
+
+            if (live == null)
+            {
+                Line("actions", true, "no character yet - nothing has been offered");
+                return;
+            }
+
+            var source = live.GetActionConfigSource();
+
+            if (source == null)
+            {
+                Line("actions", false,
+                     "the character has no Convai Actions component, so it offers no actions " +
+                     "at all and every one of them will be improvised in conversation");
+                return;
+            }
+
+            // Exactly what goes on the wire at connect, built by the SDK rather than guessed at.
+            var config = source.BuildActionConfig();
+
+            var offered = new List<string>();
+            if (config?.Actions != null)
+            {
+                foreach (var action in config.Actions)
+                {
+                    var name = CanonicalName(action);
+                    if (!string.IsNullOrEmpty(name)) offered.Add(name);
+                }
+            }
+
+            var dropped = new List<string>();
+            foreach (var definition in source.Definitions)
+            {
+                var name = definition != null ? (definition.ActionName ?? "").Trim() : "";
+                if (name.Length == 0) continue;
+
+                if (!Offers(offered, name)) dropped.Add(name);
+            }
+
+            var detail = $"offered={offered.Count} [{string.Join(", ", offered)}]";
+
+            if (dropped.Count > 0)
+                detail += $"  DROPPED=[{string.Join(", ", dropped)}]";
+
+            var problem = FirstError(source);
+            if (!string.IsNullOrEmpty(problem)) detail += $"  why={problem}";
+
+            Line("actions", dropped.Count == 0 && offered.Count > 0, detail);
+        }
+
+        /// <summary>
+        /// Whether the wire config carries this authored name. Case-insensitive, because the
+        /// SDK matches action names that way and a case difference is not a dropped action.
+        /// </summary>
+        private static bool Offers(List<string> offered, string name)
+        {
+            foreach (var candidate in offered)
+                if (string.Equals(candidate, name, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// The first thing the SDK's own validator says is broken about this character's
+        /// actions, or empty when it says nothing is.
+        ///
+        /// Errors only. Warnings here are mostly "this action wants an object target and the
+        /// character knows none yet", which is simply true for the whole of phase 1 and would
+        /// put a reason on a line that has no problem to explain.
+        /// </summary>
+        private static string FirstError(ConvaiActionConfigSource source)
+        {
+            var diagnostics = ConvaiActionConfigValidator.Validate(source);
+
+            foreach (var diagnostic in diagnostics)
+            {
+                if (diagnostic == null) continue;
+                if (diagnostic.Severity != ConvaiActionConfigDiagnosticSeverity.Error) continue;
+
+                return diagnostic.Message;
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// The action name out of a rendered wire string -- everything before the first
+        /// parameter slot or the description separator, whichever comes first.
+        ///
+        /// Written here rather than called because the SDK's own ConvaiActionWireGrammar is
+        /// internal to the Convai assembly. It is only two delimiters, and the SDK's validator
+        /// refuses to let either appear inside an authored action name, so reading a name back
+        /// this way is unambiguous for anything that reached the wire at all.
+        /// </summary>
+        private static string CanonicalName(string renderedAction)
+        {
+            if (string.IsNullOrWhiteSpace(renderedAction)) return "";
+
+            var value = renderedAction.Trim();
+
+            var slot = value.IndexOf(" {", StringComparison.Ordinal);
+            var description = value.IndexOf(" - ", StringComparison.Ordinal);
+
+            var cut = slot;
+            if (description >= 0 && (cut < 0 || description < cut)) cut = description;
+
+            return cut >= 0 ? value.Substring(0, cut).Trim() : value;
         }
 
         /// <summary>

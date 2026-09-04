@@ -11171,7 +11171,7 @@ MonoBehaviour:
     Parameters: []
     TargetRequirement: 1
     Executor: {fileID: 205058200494541277}
-    ExecutorTypeHint: 
+    ExecutorTypeHint: ConvaiWalkToActionExecutor
     TimeoutSeconds: 45
     FailurePolicyOverride: 0
     AnswerDelivery: 0
@@ -11194,7 +11194,7 @@ MonoBehaviour:
       Choices: []
     TargetRequirement: 0
     Executor: {fileID: 4446994134646067551}
-    ExecutorTypeHint: 
+    ExecutorTypeHint: RoomAttentionExecutor
     TimeoutSeconds: 10
     FailurePolicyOverride: 0
     AnswerDelivery: 3
@@ -11219,7 +11219,7 @@ MonoBehaviour:
       Choices: []
     TargetRequirement: 0
     Executor: {fileID: 2635961944521895042}
-    ExecutorTypeHint: 
+    ExecutorTypeHint: RoomTaskPlanner
     TimeoutSeconds: 45
     FailurePolicyOverride: 0
     AnswerDelivery: 3
@@ -11251,7 +11251,7 @@ MonoBehaviour:
       Choices: []
     TargetRequirement: 0
     Executor: {fileID: 983940163554673660}
-    ExecutorTypeHint: 
+    ExecutorTypeHint: RoomTaskStepExecutor
     TimeoutSeconds: 15
     FailurePolicyOverride: 0
     AnswerDelivery: 3
