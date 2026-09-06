@@ -257,6 +257,41 @@ namespace ConvaiRoom
             return "";
         }
 
+        /// <summary>
+        /// What each marking slot does.
+        ///
+        /// The label cycle is the one worth a sentence: it does NOT reset between objects, which
+        /// is the whole ergonomics of the control and is invisible from a label reading
+        /// "LABEL: chair". The trigger/grip split is deliberately NOT here -- it is two more
+        /// sentences than the line can hold, and the controls block on the details panel already
+        /// lists every binding.
+        ///
+        /// Under about 85 characters each; see the budget on ConvaiRoomModePanel.Hint.
+        /// </summary>
+        public string SlotDescription(int slot)
+        {
+            if (!IsMarking) return "";
+
+            switch (slot)
+            {
+                case 0:
+                    return "Pick what you are marking next. It does not reset, so four chairs " +
+                           "is one cycle.";
+
+                case 1:
+                    return _haveFirstCorner
+                        ? "Forget the corner just placed and start this object again."
+                        : "Remove the last object you finished.";
+
+                case 2:
+                    return "Finish marking. What is marked is kept for this room and added to " +
+                           "next time.";
+
+                default:
+                    return "";
+            }
+        }
+
         public void PressSlot(int slot)
         {
             switch (slot)

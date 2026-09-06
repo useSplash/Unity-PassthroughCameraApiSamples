@@ -141,11 +141,22 @@ namespace ConvaiRoom
             /// <summary>Why the slot is greyed out, or empty when it is not.</summary>
             public readonly string Blocked;
 
-            public SlotAction(string label, Action press, string blocked = "")
+            /// <summary>
+            /// One plain sentence shown while the laser rests on this slot. See <see cref="Hint"/>.
+            ///
+            /// Carried on the action rather than looked up from the label, so a renamed label
+            /// cannot quietly lose its description -- they are written on the same line and a
+            /// rename moves both or neither.
+            /// </summary>
+            public readonly string Description;
+
+            public SlotAction(string label, Action press, string blocked = "",
+                              string description = "")
             {
                 Label = label;
                 Press = press;
                 Blocked = blocked;
+                Description = description;
             }
 
             public bool Exists => Press != null;
@@ -153,6 +164,84 @@ namespace ConvaiRoom
 
             /// <summary>An empty slot, which is drawn as no button at all.</summary>
             public static SlotAction None => new SlotAction(null, null);
+        }
+
+        /// <summary>
+        /// Every hover description, in one place.
+        ///
+        /// Out of line from <see cref="LayOutActions"/> on purpose. That method is the whole
+        /// flow in one readable block, and a sentence per branch would double its length and
+        /// cost exactly the property it was built for. Here they can also be read as a set,
+        /// which is the only way to keep a dozen of them talking in the same voice.
+        ///
+        /// Written for somebody who has not read the code: what pressing it does, and what it
+        /// costs if it is not obvious. No component names, no field names.
+        ///
+        /// KEEP THEM UNDER ABOUT 85 CHARACTERS. The prompt line is 388px wide at font 19, which
+        /// is roughly 45 to a line, and it sits 38px above the listening light. Two lines clear
+        /// that; three do not, and the text is set to overflow rather than clip -- so a long
+        /// description does not truncate, it prints over the one readout on this panel that has
+        /// to be legible at a glance. Every description below is inside the budget. The same
+        /// applies to the ones the study screens return, which are written where they live.
+        /// </summary>
+        private static class Hint
+        {
+            public const string StartNewScan =
+                "Walk the room and let the camera find objects. Nothing is kept until you save.";
+
+            public const string LoadSavedScan =
+                "Bring back the last room that was saved, so you can check it and use it.";
+
+            public const string StopScanning =
+                "Pause the camera. Everything found so far stays.";
+
+            public const string ResumeScanning =
+                "Start looking again. New objects are added to what is already there.";
+
+            public const string SaveScan =
+                "Write what has been found to disk. This is the file everything else reads.";
+
+            public const string KeepScanning =
+                "Carry on looking. You can save again afterwards.";
+
+            public const string Proceed =
+                "Move on to checking the room that was just saved.";
+
+            public const string KeepLayout =
+                "Accept this room. Next you bake the floor she walks on.";
+
+            public const string ScanNewRoom =
+                "Throw this room away and scan again from scratch.";
+
+            public const string BakeNavMesh =
+                "Work out which floor she is allowed to walk on. She cannot move until this is done.";
+
+            public const string ReBakeNavMesh =
+                "Work the walkable floor out again. Do this if the room moved or was re-aligned.";
+
+            public const string BringInCharacter =
+                "Put her in the room and tell her what the scan found.";
+
+            public const string Respawn =
+                "Put her back at her starting spot. Use this if she is stuck or has wandered off.";
+
+            public const string BackToRoomSetup =
+                "Leave her where she is and go back to the scan and bake controls.";
+
+            public const string Info =
+                "Show or hide the second panel: status, why something refused, and the plan.";
+
+            public const string Exit =
+                "Quit the app. Takes two presses, so a stray click cannot end a session.";
+
+            public const string PlanBack =
+                "Go back one step in the plan. Same as saying \"go back\".";
+
+            public const string PlanNext =
+                "Move on to the next step in the plan. Same as saying \"next\".";
+
+            public const string PlanClear =
+                "Throw the current plan away. She keeps the room, but the steps are gone.";
         }
 
         [Header("Wiring (left empty, this is found in the scene)")]
@@ -612,7 +701,60 @@ namespace ConvaiRoom
             {
                 var slot = i;
                 _actionButtons[i].onClick.AddListener(() => PressSlot(slot));
+
+                // Reads the slot at hover time for the same reason onClick is bound to the
+                // index: the slot is generic, and anything captured here would describe
+                // whichever stage happened to be up when the scene loaded.
+                ConvaiRoomPanelHint.Attach(_actionButtons[i].gameObject,
+                                           () => _slots[slot].Description,
+                                           HintEntered, HintLeft);
             }
+
+            // The fixed buttons say the same thing at every stage, so these are constants
+            // rather than lookups.
+            ConvaiRoomPanelHint.Attach(_infoButton.gameObject, () => Hint.Info,
+                                       HintEntered, HintLeft);
+            ConvaiRoomPanelHint.Attach(_exitButton.gameObject, () => Hint.Exit,
+                                       HintEntered, HintLeft);
+            ConvaiRoomPanelHint.Attach(_planBackButton.gameObject, () => Hint.PlanBack,
+                                       HintEntered, HintLeft);
+            ConvaiRoomPanelHint.Attach(_planNextButton.gameObject, () => Hint.PlanNext,
+                                       HintEntered, HintLeft);
+            ConvaiRoomPanelHint.Attach(_planClearButton.gameObject, () => Hint.PlanClear,
+                                       HintEntered, HintLeft);
+        }
+
+        // -----------------------------------------------------------------
+        // Hover descriptions
+        // -----------------------------------------------------------------
+
+        /// <summary>
+        /// Which hint currently owns the prompt line, and what it said.
+        ///
+        /// The owner is tracked rather than a bare bool so a stale exit cannot wipe a live
+        /// hint. Moving between two adjacent buttons can deliver enter-B before exit-A, and
+        /// clearing on any exit at all would leave the line blank while the laser is plainly
+        /// resting on something.
+        /// </summary>
+        private ConvaiRoomPanelHint _hovered;
+        private string _hoveredText = "";
+
+        private void HintEntered(ConvaiRoomPanelHint hint, string description)
+        {
+            if (string.IsNullOrEmpty(description)) return;
+
+            _hovered = hint;
+            _hoveredText = description;
+            _dirty = true;
+        }
+
+        private void HintLeft(ConvaiRoomPanelHint hint)
+        {
+            if (!ReferenceEquals(_hovered, hint)) return;
+
+            _hovered = null;
+            _hoveredText = "";
+            _dirty = true;
         }
 
         /// <summary>
@@ -1210,7 +1352,7 @@ namespace ConvaiRoom
 
                     var index = i;
                     _slots[i] = new SlotAction(label, () => study.PressSlot(index),
-                                               study.SlotBlocked(i));
+                                               study.SlotBlocked(i), study.SlotDescription(i));
                 }
 
                 ApplySlots();
@@ -1220,58 +1362,70 @@ namespace ConvaiRoom
             switch (_stage)
             {
                 case Stage.Home:
-                    _slots[0] = new SlotAction("START NEW SCAN", StartNewScan);
+                    _slots[0] = new SlotAction("START NEW SCAN", StartNewScan, "",
+                                               Hint.StartNewScan);
                     _slots[1] = new SlotAction("LOAD SAVED SCAN", LoadForReview,
-                        _diskState == DiskState.Missing ? "nothing saved" : "");
+                        _diskState == DiskState.Missing ? "nothing saved" : "",
+                        Hint.LoadSavedScan);
 
                     // The third slot has always been empty here, which is what lets the study
                     // in without a re-bake: no new button, no new prefab geometry, no GUID
                     // risk. Absent a recorder it stays empty and this build is the shipped one.
-                    if (study != null) _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy);
+                    if (study != null)
+                        _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy, "",
+                                                   study.EntryDescription);
                     break;
 
                 case Stage.Scanning:
                     _slots[0] = new SlotAction(_scanning ? "STOP SCANNING" : "RESUME SCANNING",
-                                               ToggleScanning);
+                                               ToggleScanning, "",
+                                               _scanning ? Hint.StopScanning : Hint.ResumeScanning);
 
                     // Greyed on the count rather than left to be refused after the press. The
                     // refusal in SaveScan stays -- it is the one that knows what BuildScanFile
                     // actually produced -- but being told no is a worse way to learn that
                     // nothing has settled yet than the button saying so before you reach for it.
                     _slots[1] = new SlotAction("SAVE SCAN", SaveScan,
-                        _ready == 0 ? "nothing ready yet" : "");
+                        _ready == 0 ? "nothing ready yet" : "", Hint.SaveScan);
                     break;
 
                 case Stage.Saved:
-                    _slots[0] = new SlotAction("KEEP SCANNING", KeepScanning);
-                    _slots[1] = new SlotAction("PROCEED", ProceedFromScan);
+                    _slots[0] = new SlotAction("KEEP SCANNING", KeepScanning, "",
+                                               Hint.KeepScanning);
+                    _slots[1] = new SlotAction("PROCEED", ProceedFromScan, "", Hint.Proceed);
                     break;
 
                 case Stage.Review:
-                    _slots[0] = new SlotAction("YES, KEEP IT", KeepLayout);
-                    _slots[1] = new SlotAction("SCAN NEW ROOM", StartNewScan);
+                    _slots[0] = new SlotAction("YES, KEEP IT", KeepLayout, "", Hint.KeepLayout);
+                    _slots[1] = new SlotAction("SCAN NEW ROOM", StartNewScan, "",
+                                               Hint.ScanNewRoom);
                     break;
 
                 case Stage.Ready:
                     _slots[0] = new SlotAction(HasNavMesh ? "RE-BAKE NAVMESH" : "BAKE NAVMESH",
-                                               BakeNavMesh);
+                                               BakeNavMesh, "",
+                                               HasNavMesh ? Hint.ReBakeNavMesh : Hint.BakeNavMesh);
 
                     _slots[1] = new SlotAction("BRING IN CHARACTER", EnterCharacterPhase,
-                        HasNavMesh ? "" : "bake first");
+                        HasNavMesh ? "" : "bake first", Hint.BringInCharacter);
 
-                    _slots[2] = new SlotAction("SCAN NEW ROOM", StartNewScan);
+                    _slots[2] = new SlotAction("SCAN NEW ROOM", StartNewScan, "",
+                                               Hint.ScanNewRoom);
                     break;
 
                 case Stage.Character:
-                    _slots[0] = new SlotAction("RESPAWN", RespawnCharacter);
-                    _slots[1] = new SlotAction("BACK TO ROOM SETUP", ReturnToScanPhase);
+                    _slots[0] = new SlotAction("RESPAWN", RespawnCharacter, "", Hint.Respawn);
+                    _slots[1] = new SlotAction("BACK TO ROOM SETUP", ReturnToScanPhase, "",
+                                               Hint.BackToRoomSetup);
 
                     // The other stage whose third slot has always been empty, and the one the
                     // study needs most: the reference trials and the task markers all happen
                     // with her standing in the room, so a study screen reachable only from Home
                     // would mean walking the whole flow backwards to press a button and
                     // forwards again to use it.
-                    if (study != null) _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy);
+                    if (study != null)
+                        _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy, "",
+                                                   study.EntryDescription);
                     break;
             }
 
@@ -1918,7 +2072,7 @@ namespace ConvaiRoom
             _countsText.text = Headline();
             _countsText.color = HeadlineIsGood ? _skin.headlineActive : _skin.headlineIdle;
 
-            _promptText.text = PromptLine();
+            _promptText.text = PromptOrHint();
 
             RedrawVoice();
 
@@ -2197,6 +2351,26 @@ namespace ConvaiRoom
         /// The question this stage is asking, if it is asking one. Empty otherwise, which draws
         /// nothing and leaves a gap above the actions rather than moving them.
         /// </summary>
+        /// <summary>
+        /// What goes on the line above the buttons: the hovered button's description, or the
+        /// question the stage is asking.
+        ///
+        /// The hover wins while it lasts. The two stages that ask a question -- "use this room?",
+        /// "carry on, or move on?" -- put the answers on the buttons directly underneath it, so
+        /// the question is still legible from the labels while a description is up, and the
+        /// description is the thing that was just asked for. It is restored the moment the laser
+        /// moves off.
+        ///
+        /// Muted rather than accented, which is what tells the two apart at a glance: the
+        /// question is the panel asking you something, a description is the panel answering.
+        /// </summary>
+        private string PromptOrHint()
+        {
+            if (_hovered != null && !string.IsNullOrEmpty(_hoveredText)) return Muted(_hoveredText);
+
+            return PromptLine();
+        }
+
         private string PromptLine()
         {
             switch (_stage)

@@ -896,6 +896,36 @@ namespace ConvaiRoom
             return _trials.Count == 0 ? "no trials" : "";
         }
 
+        /// <summary>
+        /// What each trial slot does.
+        ///
+        /// The pair while running are easy to confuse and expensive to confuse: GIVE UP abandons
+        /// one trial and moves to the next, END BLOCK abandons the whole block. Both keep what
+        /// has already been recorded, which is the fact that makes either safe to press and is
+        /// not visible from either label.
+        ///
+        /// Under about 85 characters each; see the budget on ConvaiRoomModePanel.Hint.
+        /// </summary>
+        public string SlotDescription(int slot)
+        {
+            switch (slot)
+            {
+                case 0:
+                    return IsRunning
+                        ? "Give up on THIS trial only. It scores as given up and the block " +
+                          "carries on."
+                        : "Begin the trials. The first target is highlighted straight away.";
+
+                case 1:
+                    return IsRunning
+                        ? "Stop the whole block here. Every trial already run is kept."
+                        : "Go back without running the trials.";
+
+                default:
+                    return "";
+            }
+        }
+
         /// <summary>True once the runner is done with the panel and the recorder can take it back.</summary>
         public bool WantsToLeave { get; private set; }
 

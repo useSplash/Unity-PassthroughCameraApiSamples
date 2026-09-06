@@ -256,6 +256,15 @@ namespace ConvaiRoom
         public string EntryLabel => _session == null ? "STUDY SETUP" : "STUDY";
 
         /// <summary>
+        /// What the spare slot says on hover. Says which of the two screens it opens, because
+        /// the label alone does not -- "STUDY" during a session could as easily mean the panel
+        /// is about to ask a question as that it is about to hand over the row.
+        /// </summary>
+        public string EntryDescription => _session == null
+            ? "Set up a recording: pick the participant and room, then start."
+            : "Open the recording controls: markers, trials, the task, and ending the session.";
+
+        /// <summary>
         /// Opens the study's own screen: setup before a session, the session controls during
         /// one.
         ///
@@ -304,6 +313,25 @@ namespace ConvaiRoom
             return "";
         }
 
+        /// <summary>
+        /// One plain sentence per slot, shown while the laser rests on it.
+        ///
+        /// Follows the same delegation as <see cref="SlotLabel"/> rather than describing the
+        /// sub-modes from here: the marker and the trial runner own what their own buttons mean,
+        /// and a copy kept in this class would be a second description to remember to change.
+        /// </summary>
+        public string SlotDescription(int slot)
+        {
+            switch (_mode)
+            {
+                case Mode.Setup: return SetupSlotDescription(slot);
+                case Mode.Session: return SessionSlotDescription(slot);
+                case Mode.Truth: return truthMarker != null ? truthMarker.SlotDescription(slot) : "";
+                case Mode.Reference: return trials != null ? trials.SlotDescription(slot) : "";
+                default: return "";
+            }
+        }
+
         public void PressSlot(int slot)
         {
             switch (_mode)
@@ -337,6 +365,68 @@ namespace ConvaiRoom
 
                 default:
                     return null;
+            }
+        }
+
+        /// <summary>
+        /// What each setup slot does, and for slot 1, what the field being changed actually
+        /// means -- which is where the descriptions earn their keep. "AT BUDGET" says nothing
+        /// about the fact that turning it on can end a participant's session early.
+        /// </summary>
+        private string SetupSlotDescription(int slot)
+        {
+            switch (slot)
+            {
+                case 0:
+                    return "Move to the next setting. This changes nothing on its own.";
+
+                case 1:
+                    return _field == Field.Leave
+                        ? "Go back to the app without starting a recording."
+                        : FieldDescription(_field);
+
+                case 2:
+                    return "Start recording. The run number is counted for you, so it cannot clash.";
+
+                default:
+                    return "";
+            }
+        }
+
+        /// <summary>
+        /// What one setting is for, in the words somebody setting it would use.
+        ///
+        /// Under about 85 characters each, which is two lines on the panel's prompt row -- see
+        /// the budget on ConvaiRoomModePanel.Hint. A third line prints over the listening light.
+        /// </summary>
+        private string FieldDescription(Field field)
+        {
+            switch (field)
+            {
+                case Field.Participant:
+                    return "Which participant this is. Goes in the filename.";
+
+                case Field.Room:
+                    // The one field whose consequence is invisible at the time and expensive
+                    // later: ground truth is filed per room label, so a room renamed halfway
+                    // through the study orphans everything already measured in it.
+                    return "Which room this is. Keep the name identical every visit, or the " +
+                           "measurements scatter.";
+
+                case Field.ObservationLog:
+                    return "Records every raw detection. Leave OFF for participants; " +
+                           "researcher scans only.";
+
+                case Field.Budget:
+                    return "How many spoken turns you are planning for. A target to watch, " +
+                           "not a real limit.";
+
+                case Field.Enforce:
+                    return "WARN ONLY just reports. HARD STOP shuts the mic at the budget, and " +
+                           "can end a session early.";
+
+                default:
+                    return "";
             }
         }
 
@@ -460,6 +550,58 @@ namespace ConvaiRoom
                 case 1: return $"NEXT: {ToolName(_tool)}";
                 case 2: return ToolAction(_tool);
                 default: return null;
+            }
+        }
+
+        private string SessionSlotDescription(int slot)
+        {
+            switch (slot)
+            {
+                case 0:
+                    return "Stamp this moment in the recording, so you can find it again later.";
+
+                case 1:
+                    return "Choose what the button below does. This does not do it.";
+
+                case 2:
+                    return ToolDescription(_tool);
+
+                default:
+                    return "";
+            }
+        }
+
+        /// <summary>
+        /// What the action slot will actually do, for whichever tool is selected.
+        ///
+        /// The toggles say which way they will go rather than what they are, because that is
+        /// the question at the moment somebody reaches for one: the label already reads
+        /// "END TASK", and what a hover has to add is what ending it means.
+        /// </summary>
+        private string ToolDescription(Tool tool)
+        {
+            switch (tool)
+            {
+                case Tool.Reference:
+                    return "Open the reference trials. Bring her in FIRST, or naming trials " +
+                           "will not be built.";
+
+                case Tool.Task:
+                    return _openTask != null
+                        ? "Stop the clock on this task and mark it finished."
+                        : "Start the clock on a task. Everything until you end it belongs to it.";
+
+                case Tool.Assist:
+                    return "Count one time you had to step in. Only while a task is open.";
+
+                case Tool.Truth:
+                    return "Measure what is really in the room, to compare the scan against.";
+
+                case Tool.End:
+                    return "Finish the recording and write the file. This cannot be undone.";
+
+                default:
+                    return "Go back to the app's own buttons. The recording keeps running.";
             }
         }
 
