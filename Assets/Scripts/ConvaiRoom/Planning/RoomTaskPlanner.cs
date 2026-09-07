@@ -1,7 +1,9 @@
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Convai.Domain.DomainEvents.Transcript;
 using Convai.Runtime.Actions;
+using Convai.Runtime.Facades;
 using UnityEngine;
 
 namespace ConvaiRoom
@@ -105,11 +107,50 @@ namespace ConvaiRoom
         [Header("Debug")]
         public bool verboseLogging = true;
 
+        /// <summary>
+        /// The last thing the player actually said, kept for when the action arrives without it.
+        ///
+        /// See <see cref="ExecuteAsync"/> for why this is worth listening for at all.
+        /// </summary>
+        private readonly ConvaiEventBinder _binder = new ConvaiEventBinder();
+
+        private bool _binderWired;
+        private string _lastPlayerWords = "";
+
         private void Awake()
         {
             if (client == null) client = FindAnyObjectByType<RoomPlannerClient>();
             if (plan == null) plan = FindAnyObjectByType<RoomTaskPlan>();
             if (context == null) context = FindAnyObjectByType<RoomScanContext>();
+        }
+
+        // Ticked rather than subscribed once, because the events belong to a session that opens
+        // long after this component wakes and closes and reopens as she is respawned. The binder
+        // is the same one the study screens use for the same reason.
+        private void Update()
+        {
+            if (!_binderWired)
+            {
+                _binder.Bound += HandleBound;
+                _binder.Unbinding += HandleUnbinding;
+                _binderWired = true;
+            }
+
+            _binder.Tick();
+        }
+
+        private void OnDisable() => _binder.Release();
+
+        private void HandleBound(ConvaiEvents events) =>
+            events.OnFinalUserTranscriptionReceived += HandlePlayerFinal;
+
+        private void HandleUnbinding(ConvaiEvents events) =>
+            events.OnFinalUserTranscriptionReceived -= HandlePlayerFinal;
+
+        private void HandlePlayerFinal(FinalUserTranscriptionReceived e)
+        {
+            var said = (e.Text ?? "").Trim();
+            if (said.Length > 0) _lastPlayerWords = said;
         }
 
         /// <inheritdoc />
@@ -124,12 +165,33 @@ namespace ConvaiRoom
             // the backend may simply have invoked the action without filling the parameter in,
             // and the next turn may well carry it. So she asks for it rather than declaring the
             // headset broken, and the console gets the reading that is actually actionable.
+            // An empty task is not a misconfiguration, it is a known shape of a well-formed
+            // request. The backend writes one command as several list entries -- "Plan Task",
+            // then "task: set up the room" as though it were an action of its own -- and the
+            // SDK rejoins those only into a Choice slot or one naming something in the scene.
+            // A free-text task can be neither, so the piece carrying the words is dropped as an
+            // unknown action and this one arrives holding nothing. Twice in the logs so far.
+            //
+            // The words are not actually lost, though: they are what the player just said, and
+            // that is the same sentence the backend was trying to hand over. Planning it is not
+            // a guess. It is warned about loudly rather than done quietly, because a plan built
+            // from a fallback should be visible as one when the plan turns out odd.
             if (string.IsNullOrWhiteSpace(task))
             {
-                return CannotRun(
-                    "I didn't catch what you wanted me to plan. Can you say that again?",
-                    "This action needs a task to plan. Check the Plan Task action declares a " +
-                    "'task' string parameter, and that the character is filling it in.");
+                if (string.IsNullOrWhiteSpace(_lastPlayerWords))
+                {
+                    return CannotRun(
+                        "I didn't catch what you wanted me to plan. Can you say that again?",
+                        "This action needs a task to plan, and nothing has been said this " +
+                        "session to fall back on. Check the Plan Task action declares a 'task' " +
+                        "string parameter, and that the character is filling it in.");
+                }
+
+                task = _lastPlayerWords;
+                Debug.LogWarning(
+                    $"{Tag} The action arrived with no task -- the backend split the command and " +
+                    $"the half carrying the words was dropped. Planning what the player last " +
+                    $"said instead: '{task}'.");
             }
 
             if (client == null)
