@@ -11220,7 +11220,7 @@ MonoBehaviour:
     ExecutorTypeHint: RoomTaskPlanner
     TimeoutSeconds: 45
     FailurePolicyOverride: 0
-    AnswerDelivery: 3
+    AnswerDelivery: 2
     WaitForBotSpeech: 1
     DelayAfterBotSpeechSeconds: 0
     _disabled: 0
