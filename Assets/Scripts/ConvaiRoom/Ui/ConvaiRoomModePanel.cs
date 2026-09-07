@@ -242,6 +242,9 @@ namespace ConvaiRoom
 
             public const string PlanClear =
                 "Throw the current plan away. She keeps the room, but the steps are gone.";
+
+            public const string PlannerModel =
+                "Change which local model works plans out. Ask for a new plan to compare.";
         }
 
         [Header("Wiring (left empty, this is found in the scene)")]
@@ -290,6 +293,11 @@ namespace ConvaiRoom
                  "without one the study slot is simply not offered and the panel behaves " +
                  "exactly as it did before the study code existed.")]
         public StudySessionRecorder study;
+
+        [Tooltip("Works out the plans. Read only, and only so the panel can offer the model " +
+                 "button while piloting. Optional -- without one, or with a single candidate " +
+                 "model, no button appears.")]
+        public RoomPlannerClient planner;
 
         /// <summary>
         /// Raised after the flow moves, as (from, to).
@@ -552,6 +560,7 @@ namespace ConvaiRoom
             // being re-baked: an instance whose overrides are re-pointed loses the ones the
             // scene set, and every other field here can find itself again.
             if (plan == null) plan = FindAnyObjectByType<RoomTaskPlan>();
+            if (planner == null) planner = FindAnyObjectByType<RoomPlannerClient>();
 
             // Normally absent. A build with no recorder in the scene is the shipped build.
             if (study == null) study = FindAnyObjectByType<StudySessionRecorder>();
@@ -1426,6 +1435,16 @@ namespace ConvaiRoom
                     if (study != null)
                         _slots[2] = new SlotAction(study.EntryLabel, study.OpenStudy, "",
                                                    study.EntryDescription);
+
+                    // Only when the study is not here, and not as a consolation prize: a run
+                    // that is measuring people wants one model held still for all of them, and
+                    // a button that changes what she is being judged on is the last thing that
+                    // row should offer. So this is the piloting build's use of the same slot --
+                    // work out which model is worth studying, clear the candidate list, and the
+                    // button is gone from the build that does the studying.
+                    else if (planner != null && planner.CanCycleModel)
+                        _slots[2] = new SlotAction($"MODEL: {planner.ollamaModel}",
+                                                   CyclePlannerModel, "", Hint.PlannerModel);
                     break;
             }
 
@@ -1830,6 +1849,26 @@ namespace ConvaiRoom
             }
 
             Report("character respawned");
+            _dirty = true;
+        }
+
+        /// <summary>
+        /// Moves the planner on to the next local model.
+        ///
+        /// Nothing is re-planned here, and that is the point: the plan she is holding was worked
+        /// out by the model that was selected when it was asked for, and silently replacing it
+        /// would destroy the only comparison this button exists to make. Ask her for the same
+        /// task again and the difference is between two answers you can still both see.
+        ///
+        /// The first plan after a switch pays the load again -- a model that has just been
+        /// selected is by definition not the one resident in VRAM -- so the honest reading of a
+        /// new model is its second plan, not its first.
+        /// </summary>
+        private void CyclePlannerModel()
+        {
+            if (planner == null) return;
+
+            Report($"planner model: {planner.CycleModel()}");
             _dirty = true;
         }
 

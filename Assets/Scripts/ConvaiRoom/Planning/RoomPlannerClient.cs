@@ -102,9 +102,63 @@ namespace ConvaiRoom
                  "that fits: this is enumeration and selection, not reasoning.")]
         public string ollamaModel = "qwen2.5:7b";
 
+        [Tooltip("Models to compare, cycled from the panel while she is in the room.\n\n" +
+                 "Every one has to be pulled on the Ollama machine already. A name that is not " +
+                 "pulled is not a crash: the plan fails with Ollama's own error naming it, which " +
+                 "is how you find out. Leave this empty and the panel offers no model button, " +
+                 "which is the right build to run a study on -- comparing models is piloting " +
+                 "work, and a study wants one model held still.")]
+        public string[] ollamaCandidates =
+        {
+            "qwen2.5:7b",
+            "qwen2.5:3b",
+            "llama3.1:8b"
+        };
+
+        [Tooltip("How long Ollama keeps the model in VRAM after a plan, as an Ollama duration " +
+                 "(30m, 1h, -1 for forever).\n\n" +
+                 "This is the single biggest thing between you and a fast plan, and it is not " +
+                 "the model's thinking. Measured on device: 31.7s total, of which 17.2s was " +
+                 "loading the model and 1.4s was the actual answer once it was warm. Ollama's " +
+                 "own default drops the model after five minutes, and a session with gaps " +
+                 "between tasks pays that reload on nearly every plan.")]
+        public string ollamaKeepAlive = "30m";
+
         [Tooltip("How varied the wording is. Low on purpose -- a plan is instructions, and there " +
                  "is no upside to it phrasing them differently every time you ask.")]
         [Range(0f, 1f)] public float ollamaTemperature = 0.2f;
+
+        /// <summary>
+        /// Whether there is more than one model to choose between, and so anything for a button
+        /// to do. False on a build whose candidate list was cleared, which is the study build.
+        /// </summary>
+        public bool CanCycleModel =>
+            backend == PlannerBackend.Ollama && ollamaCandidates != null &&
+            ollamaCandidates.Length > 1;
+
+        /// <summary>
+        /// Moves to the next candidate model and returns what is now selected.
+        ///
+        /// Wraps rather than stopping at the end, and starts from whatever
+        /// <see cref="ollamaModel"/> currently is rather than from a remembered index -- the
+        /// field is public and the Inspector can move it underneath this at any time, so an
+        /// index would be a second source of truth that is wrong exactly when somebody has been
+        /// experimenting. A model not in the list reads as position -1 and so cycles to the
+        /// first, which is the useful answer rather than an error.
+        /// </summary>
+        public string CycleModel()
+        {
+            if (ollamaCandidates == null || ollamaCandidates.Length == 0)
+                return ollamaModel;
+
+            var at = System.Array.FindIndex(
+                ollamaCandidates,
+                candidate => string.Equals(candidate?.Trim(), ollamaModel?.Trim(),
+                                           System.StringComparison.OrdinalIgnoreCase));
+
+            ollamaModel = ollamaCandidates[(at + 1) % ollamaCandidates.Length];
+            return ollamaModel;
+        }
 
         [Header("Anthropic")]
         [Tooltip("Which Claude model plans the task.\n\n" +
@@ -504,6 +558,12 @@ namespace ConvaiRoom
             json.Append('{');
             json.Append("\"model\":").Append(Quote(ollamaModel.Trim())).Append(',');
             json.Append("\"stream\":false,");
+
+            // Top level rather than inside options, which is where Ollama reads it from. Left
+            // out entirely when blank so Ollama keeps its own default instead of being handed
+            // an empty string it would have to interpret.
+            if (!string.IsNullOrWhiteSpace(ollamaKeepAlive))
+                json.Append("\"keep_alive\":").Append(Quote(ollamaKeepAlive.Trim())).Append(',');
 
             json.Append("\"format\":");
             AppendSchema(json, places);
