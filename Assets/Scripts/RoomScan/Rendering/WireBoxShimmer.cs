@@ -4,24 +4,38 @@ using UnityEngine.Rendering;
 namespace RoomScan
 {
     /// <summary>
-    /// A soft shimmer along a <see cref="WireBox"/>'s edges, for the moments a box needs to be
-    /// NOTICED rather than merely drawn.
+    /// A soft drift of dust along a <see cref="WireBox"/>'s edges, for the moments a box needs to
+    /// be NOTICED rather than merely drawn.
     ///
     /// A colour change alone is easy to miss in passthrough: the box is thin, the room behind it
     /// is busy and lit however the room is lit, and a participant looking somewhere else when the
     /// colour flips has no second chance at it. Motion is what the eye catches at the edge of
-    /// vision, so this adds a little of it without adding brightness -- the box stays an outline,
-    /// which is the whole reason nothing here draws solid cubes.
+    /// vision, so this adds some of it without adding a solid surface -- the box stays an
+    /// outline, which is the whole reason nothing here draws filled cubes.
     ///
     /// Built in code rather than authored as a prefab. There is no particle prefab in this
     /// project to extend, and an asset would be a second place to keep in step with the box it
     /// decorates; this way a shimmer cannot outlive or mis-size the WireBox it belongs to.
     ///
-    /// The material comes from <see cref="WireMaterial"/> for the reason given there:
-    /// Sprites/Default is unlit, alpha-blended, writes no depth, and is in this project's Always
-    /// Included Shaders, so it survives a player build. A particle system left on the default
-    /// material renders magenta on device and fine in the editor, which is the worst way to
-    /// find out.
+    /// The grains are drawn from a generated atlas, NOT from an untextured material. Sprites
+    /// /Default with no main texture draws a flat, hard-edged square, which reads as a pixel
+    /// rather than as a mote of dust however small it is made -- softness has to come from the
+    /// texture's own alpha falloff, and there is nothing else in the frame to supply it. Four
+    /// grains rather than one, because a single sprite repeated a hundred times reads as a
+    /// pattern; dust does not.
+    ///
+    /// The atlas is generated at runtime for the same reason the particle system is: an imported
+    /// texture would carry import settings, a .meta, and a second place for this to go wrong,
+    /// to save arithmetic that costs well under a millisecond once per run.
+    ///
+    /// The material is a COPY of <see cref="WireMaterial"/>'s, taken so that the shader is
+    /// literally the same object: Sprites/Default is unlit, alpha-blended, writes no depth, and
+    /// is in this project's Always Included Shaders, so it survives a player build, and a copy
+    /// cannot drift from that guarantee the way a second Shader.Find could. It must be a copy
+    /// and never the shared instance itself -- setting a main texture on that one would texture
+    /// every wireframe line in the scene, since every WireBox LineRenderer draws with it.
+    /// A particle system left on Unity's default material renders magenta on device and fine in
+    /// the editor, which is the worst way to find out.
     /// </summary>
     [RequireComponent(typeof(WireBox))]
     [DisallowMultipleComponent]
@@ -29,14 +43,37 @@ namespace RoomScan
     {
         private const string Tag = "[Shimmer]";
 
-        // Tuned for "present, not distracting" over passthrough. Deliberately small and slow:
+        // Tuned for "dust caught in the light", not "sparks". Still deliberately unhurried --
         // this competes for attention with the real object inside the box, and the object is
         // what the participant is being asked to look at.
-        private const float BaseRate = 26f;      // particles per second at intensity 1
-        private const float Size = 0.013f;       // metres
-        private const float Lifetime = 0.95f;    // seconds
-        private const float Speed = 0.035f;      // metres per second of drift
-        private const float Alpha = 0.55f;
+        //
+        // Every one of these is a range rather than a value wherever a range was affordable.
+        // Uniform particles read as a mechanism; varied ones read as material, and the variance
+        // costs nothing at this count.
+        private const float BaseRate = 58f;        // particles per second at intensity 1
+        private const float SizeMin = 0.016f;      // metres
+        private const float SizeMax = 0.030f;
+        private const float LifetimeMin = 1.1f;    // seconds
+        private const float LifetimeMax = 2.0f;
+        private const float SpeedMin = 0.02f;      // metres per second of drift
+        private const float SpeedMax = 0.09f;
+        private const float Alpha = 0.7f;
+
+        /// <summary>
+        /// Radians per second, both directions. Radians because the particle rotation API takes
+        /// them while the Inspector shows degrees -- a number that looks right in the editor and
+        /// spins 57x too fast is the failure this comment exists to prevent.
+        /// </summary>
+        private const float RotateSpeed = 0.6f;
+
+        /// <summary>
+        /// The air the dust is sitting in. <see cref="NoiseStrength"/> is metres of displacement,
+        /// which is only true with damping OFF -- with it on, Unity rescales strength by
+        /// frequency and the number stops meaning anything you can reason about from here.
+        /// </summary>
+        private const float NoiseStrength = 0.06f;
+        private const float NoiseFrequency = 0.35f;
+        private const float NoiseScroll = 0.22f;
 
         /// <summary>
         /// Rate is scaled by the box's edge length so a wardrobe and a mug shimmer at roughly the
@@ -46,6 +83,24 @@ namespace RoomScan
         private const float RateReference = 1.2f;   // metres; a mid-sized object's mean edge
         private const float RateMin = 0.35f;
         private const float RateMax = 3f;
+
+        /// <summary>
+        /// Grains across the generated atlas; the sheet holds this squared. Four is enough to
+        /// break the repeat and keeps the sheet at 128px, which is nothing to upload once.
+        /// </summary>
+        private const int AtlasCols = 2;
+        private const int GrainPixels = 64;
+
+        /// <summary>
+        /// How far across its tile a grain may reach, as a fraction. The rest is a transparent
+        /// gutter, and it is not spare space: the sheet is mipmapped, and a grain drawn out to
+        /// the tile edge bleeds into its neighbour at the small mips -- which is exactly the
+        /// distance a box is usually seen from.
+        /// </summary>
+        private const float GrainGutter = 0.82f;
+
+        private static Material _dust;
+        private static Texture2D _dustAtlas;
 
         private ParticleSystem _ps;
         private ParticleSystemRenderer _renderer;
@@ -81,7 +136,7 @@ namespace RoomScan
         ///
         /// <paramref name="intensity"/> scales the emission rate only, not size or brightness:
         /// a persistent shimmer that follows the pointer around the room wants to be quieter
-        /// than a two-second cue, and thinning it reads as quieter while keeping the two
+        /// than a five-second cue, and thinning it reads as quieter while keeping the two
         /// recognisably the same effect.
         /// </summary>
         public void Show(Color color, float intensity = 1f)
@@ -92,7 +147,7 @@ namespace RoomScan
 
             // Alpha is forced rather than taken from the caller's colour. Both callers pass a
             // fully opaque highlight colour -- correct for a line, far too solid for a hundred
-            // overlapping sprites.
+            // overlapping grains.
             main.startColor = new Color(color.r, color.g, color.b, Alpha);
 
             var shape = _ps.shape;
@@ -108,15 +163,19 @@ namespace RoomScan
         }
 
         /// <summary>
-        /// Stops the shimmer and removes every particle already in the air, THIS FRAME.
+        /// Stops the shimmer and removes every grain already in the air, THIS FRAME.
         ///
         /// StopEmittingAndClear rather than a plain Stop, and that distinction is load-bearing
         /// for the trial cue. Particles outlive the emitter that made them, so a plain Stop
-        /// leaves the target visibly marked for another second -- past the instant the cue is
-        /// recorded as having ended, and into the window where the participant is supposed to be
-        /// answering from memory. A pointing trial whose target is still sparkling is not
+        /// leaves the target visibly marked for as long as the longest grain has left to live --
+        /// up to <see cref="LifetimeMax"/>, two full seconds, past the instant the cue is
+        /// recorded as having ended and well into the window where the participant is supposed
+        /// to be answering from memory. A pointing trial whose target is still drifting is not
         /// measuring reference resolution; it is measuring whether somebody can point at the
         /// glowing thing.
+        ///
+        /// The longer, softer grains made this MORE important than it was, not less: the same
+        /// mistake now buys twice the contamination it used to.
         /// </summary>
         public void Hide()
         {
@@ -131,7 +190,7 @@ namespace RoomScan
         /// <summary>
         /// Emission density for a box, so big and small objects read alike. Clamped at both ends:
         /// a room-sized false positive should not empty the particle budget, and a very small
-        /// box still needs enough particles to register as motion at all.
+        /// box still needs enough grains to register as motion at all.
         /// </summary>
         private static float DensityFor(Vector3 size)
         {
@@ -153,18 +212,26 @@ namespace RoomScan
             var main = _ps.main;
             main.loop = true;
             main.playOnAwake = false;
-            main.startLifetime = Lifetime;
-            main.startSpeed = Speed;
-            main.startSize = Size;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(LifetimeMin, LifetimeMax);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(SpeedMin, SpeedMax);
+            main.startSize = new ParticleSystem.MinMaxCurve(SizeMin, SizeMax);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, 2f * Mathf.PI);
             main.gravityModifier = 0f;
             main.simulationSpace = ParticleSystemSimulationSpace.Local;
-            main.maxParticles = 220;
             main.startColor = new Color(1f, 1f, 1f, Alpha);
 
+            // Headroom over the worst case rather than a guess. The biggest box the scanner will
+            // export is capped at ObjectScanRecorder.maxObjectSize (3 m), which lands on density
+            // 2.5 and so about 225 alive at the longest lifetime -- a cap of 220 would have
+            // silently thinned exactly the largest objects, which are the ones already hardest
+            // to read as marked.
+            main.maxParticles = 500;
+
             // Edges, not volume. The wireframe IS the object as far as this pipeline draws it,
-            // so tracing the same twelve edges keeps the shimmer reading as part of the box
-            // rather than as fog sitting inside it -- which over passthrough would obscure the
-            // very thing the box is pointing at.
+            // so tracing the same twelve edges keeps the dust reading as part of the box rather
+            // than as fog sitting inside it -- which over passthrough would obscure the very
+            // thing the box is pointing at. The noise below pushes grains a few centimetres off
+            // the edge, which softens the line without filling the middle.
             var shape = _ps.shape;
             shape.enabled = true;
             shape.shapeType = ParticleSystemShapeType.BoxEdge;
@@ -174,18 +241,47 @@ namespace RoomScan
             emission.enabled = true;
             emission.rateOverTime = BaseRate;
 
-            // Fades in and out rather than popping. A particle that appears and vanishes at full
-            // alpha reads as flicker; the same particle faded at both ends reads as a shimmer,
-            // which is the difference between "noticeable" and "broken".
+            // Fades in and out rather than popping. A grain that appears and vanishes at full
+            // alpha reads as flicker; the same grain faded at both ends reads as drift, which is
+            // the difference between "noticeable" and "broken".
             var colorOverLifetime = _ps.colorOverLifetime;
             colorOverLifetime.enabled = true;
             colorOverLifetime.color = new ParticleSystem.MinMaxGradient(FadeGradient());
+
+            // What makes it dust rather than a fountain. Straight-line drift at these speeds
+            // reads as debris falling off the box; a slow curl reads as something suspended in
+            // the air of the room, which is the whole idea.
+            var noise = _ps.noise;
+            noise.enabled = true;
+            noise.quality = ParticleSystemNoiseQuality.Medium;
+            noise.damping = false;
+            noise.strength = NoiseStrength;
+            noise.frequency = NoiseFrequency;
+            noise.scrollSpeed = NoiseScroll;
+
+            // Slow tumble. Invisible on a radially symmetric grain, which is why the atlas has
+            // asymmetric ones in it.
+            var rotation = _ps.rotationOverLifetime;
+            rotation.enabled = true;
+            rotation.z = new ParticleSystem.MinMaxCurve(-RotateSpeed, RotateSpeed);
+
+            // One grain per particle, held for its whole life. frameOverTime is a constant zero
+            // so the sheet never advances: this is a variety picker, not an animation, and a
+            // grain that morphed into a different grain mid-drift would read as flicker.
+            var sheet = _ps.textureSheetAnimation;
+            sheet.enabled = true;
+            sheet.numTilesX = AtlasCols;
+            sheet.numTilesY = AtlasCols;
+            sheet.animation = ParticleSystemAnimationType.WholeSheet;
+            sheet.timeMode = ParticleSystemAnimationTimeMode.Lifetime;
+            sheet.frameOverTime = new ParticleSystem.MinMaxCurve(0f);
+            sheet.startFrame = new ParticleSystem.MinMaxCurve(0f, AtlasCols * AtlasCols);
 
             _renderer = GetComponent<ParticleSystemRenderer>();
             if (_renderer != null)
             {
                 _renderer.renderMode = ParticleSystemRenderMode.Billboard;
-                _renderer.sharedMaterial = WireMaterial.Shared;
+                _renderer.sharedMaterial = DustMaterial();
                 _renderer.shadowCastingMode = ShadowCastingMode.Off;
                 _renderer.receiveShadows = false;
                 _renderer.lightProbeUsage = LightProbeUsage.Off;
@@ -201,6 +297,139 @@ namespace RoomScan
                                  "run and draw nothing.");
             }
         }
+
+        /// <summary>
+        /// The one material every shimmer in the scene draws with, built once.
+        ///
+        /// Copied from <see cref="WireMaterial"/>'s rather than resolved through a second
+        /// Shader.Find, so it carries the same shader instance the wireframes already proved is
+        /// in Always Included Shaders. Never the shared instance itself -- see the class remark.
+        /// </summary>
+        private static Material DustMaterial()
+        {
+            if (_dust != null) return _dust;
+
+            var basis = WireMaterial.Shared;
+            if (basis == null)
+            {
+                // WireMaterial has already logged which shader it could not find; saying it
+                // twice per box would bury it.
+                return null;
+            }
+
+            _dustAtlas = BuildDustAtlas();
+
+            _dust = new Material(basis)
+            {
+                name = "WireBoxShimmerDust",
+                hideFlags = HideFlags.HideAndDontSave,
+                mainTexture = _dustAtlas
+            };
+
+            return _dust;
+        }
+
+        /// <summary>
+        /// Draws the grain sheet: white throughout, with all the shape in the alpha.
+        ///
+        /// White RGB everywhere is not laziness -- it is what makes the mipmaps safe. Only alpha
+        /// varies, so a filtered texel can never pull a neighbour's colour into a grain's edge,
+        /// and <see cref="Show"/> is free to tint the whole thing to the caller's cue colour.
+        /// </summary>
+        private static Texture2D BuildDustAtlas()
+        {
+            const int side = GrainPixels * AtlasCols;
+
+            var tex = new Texture2D(side, side, TextureFormat.RGBA32, true)
+            {
+                name = "WireBoxShimmerDustAtlas",
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+
+            var pixels = new Color32[side * side];
+
+            for (var tileY = 0; tileY < AtlasCols; tileY++)
+            for (var tileX = 0; tileX < AtlasCols; tileX++)
+            {
+                var grain = Grains[tileY * AtlasCols + tileX];
+
+                for (var y = 0; y < GrainPixels; y++)
+                for (var x = 0; x < GrainPixels; x++)
+                {
+                    // -1..1 across the tile, so the radius is 0 at its centre and 1 at the
+                    // middle of an edge. Dividing by the gutter pushes zero alpha inside the
+                    // tile rather than exactly on its border; multiplying dy by the aspect
+                    // squashes the grain without letting it reach any further across.
+                    var dx = (x + 0.5f) / GrainPixels * 2f - 1f - grain.OffsetX;
+                    var dy = ((y + 0.5f) / GrainPixels * 2f - 1f - grain.OffsetY) * grain.Aspect;
+                    var r = Mathf.Sqrt(dx * dx + dy * dy) / GrainGutter;
+
+                    var a = r <= grain.Core
+                        ? 1f
+                        : Mathf.Pow(Mathf.Clamp01(1f - (r - grain.Core) / (1f - grain.Core)),
+                                    grain.Falloff);
+
+                    pixels[(tileY * GrainPixels + y) * side + tileX * GrainPixels + x] =
+                        new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * 255f));
+                }
+            }
+
+            tex.SetPixels32(pixels);
+
+            // Mips built, then the CPU copy dropped -- nothing reads this back, and a 128px
+            // readable texture is memory held for the life of the app for no reason.
+            tex.Apply(true, true);
+
+            return tex;
+        }
+
+        /// <summary>
+        /// One grain of the sheet.
+        ///
+        /// <see cref="Aspect"/> squashes the grain on one axis; 1 is round. It only ever
+        /// squashes and never stretches, because a grain widened past the gutter would run off
+        /// its tile and into its neighbour's. Elongation is what makes the set genuinely four
+        /// shapes rather than one shape at four sizes -- size is already randomised per particle,
+        /// so a sheet that varied only in size would have been the same grain four times -- and
+        /// it is also what makes <see cref="RotateSpeed"/> do anything at all: a radially
+        /// symmetric grain looks identical however far it has turned.
+        /// </summary>
+        private readonly struct Grain
+        {
+            public readonly float Core;      // fraction of the radius held at full alpha
+            public readonly float Falloff;   // how sharply it fades beyond the core
+            public readonly float Aspect;    // 1 is round; above that, squashed vertically
+            public readonly float OffsetX;
+            public readonly float OffsetY;
+
+            public Grain(float core, float falloff, float aspect, float offsetX, float offsetY)
+            {
+                Core = core;
+                Falloff = falloff;
+                Aspect = aspect;
+                OffsetX = offsetX;
+                OffsetY = offsetY;
+            }
+        }
+
+        /// <summary>
+        /// The grains, in sheet order. Length must stay <see cref="AtlasCols"/> squared.
+        ///
+        /// They differ in how much solid core they hold before the falloff starts, how sharply
+        /// it then falls, and how far from round they are -- which is what separates a mote you
+        /// can see the edge of from a haze you can only see the middle of. The lopsided one is
+        /// off-centre in its tile on purpose: rotation turns a grain about the quad's centre,
+        /// so an off-centre grain tumbles rather than merely spinning in place.
+        /// </summary>
+        private static readonly Grain[] Grains =
+        {
+            new Grain(0.10f, 1.7f, 1.00f,  0f,     0f),      // a round, defined mote
+            new Grain(0.02f, 3.2f, 1.60f,  0f,     0f),      // a soft oval puff
+            new Grain(0.17f, 2.3f, 1.25f,  0.08f, -0.06f),   // lopsided, bright in the middle
+            new Grain(0.00f, 5.0f, 2.20f,  0f,     0f)       // a faint wisp, barely there
+        };
 
         private static Gradient FadeGradient()
         {
