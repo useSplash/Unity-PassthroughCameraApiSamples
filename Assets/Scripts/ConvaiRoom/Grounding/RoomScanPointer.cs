@@ -104,6 +104,14 @@ namespace ConvaiRoom
         private GameObject _committed;
         private WireBox _highlighted;
         private Color _highlightedWas;
+        private WireBoxShimmer _highlightShimmer;
+
+        /// <summary>
+        /// How dense the aim shimmer is against the trial cue's. A fraction rather than its own
+        /// set of numbers, so the two stay recognisably the same effect and only one of them
+        /// has to be tuned.
+        /// </summary>
+        private const float HighlightShimmer = 0.5f;
 
         private OVRCameraRig _rig;
 
@@ -346,6 +354,22 @@ namespace ConvaiRoom
         // Feedback
         // -----------------------------------------------------------------
 
+        /// <summary>
+        /// Drops the aim highlight without forgetting what the player last meant.
+        ///
+        /// Only the VISUAL goes. <c>_committed</c> and <see cref="AttentionName"/> are untouched,
+        /// so "that one" still resolves afterwards -- losing the highlight is not the same
+        /// decision as losing the referent, and the class summary is explicit that the second
+        /// one never happens just because the ray moved.
+        ///
+        /// Exists for the trial cue. Turning <see cref="highlightAimed"/> off suppresses the
+        /// NEXT highlight but cannot retract the one already drawn, so without this the object
+        /// somebody happened to be pointing at when a trial began stays lit through the cue --
+        /// two objects marked at once, in a block whose whole question is which object was
+        /// meant.
+        /// </summary>
+        public void ClearAimHighlight() => ClearHighlight();
+
         private void Highlight(GameObject proxy)
         {
             ClearHighlight();
@@ -361,10 +385,23 @@ namespace ConvaiRoom
             _highlighted = box;
 
             box.SetColor(highlightColor);
+
+            // Thinner than the cue's, deliberately. This one persists for as long as the ray
+            // rests on something, so it is on screen while somebody sweeps the room looking for
+            // what they want -- at the cue's density that reads as the room fizzing rather than
+            // as one object being singled out.
+            _highlightShimmer = WireBoxShimmer.AttachTo(proxy);
+            if (_highlightShimmer != null) _highlightShimmer.Show(highlightColor, HighlightShimmer);
         }
 
         private void ClearHighlight()
         {
+            if (_highlightShimmer != null)
+            {
+                _highlightShimmer.Hide();
+                _highlightShimmer = null;
+            }
+
             if (_highlighted == null)
             {
                 _highlighted = null;

@@ -258,8 +258,16 @@ generated on first entry, from the objects in the **replayed scan** — so repla
 - 2 modalities (naming, pointing) × 4 distractor counts × `reps` (default 3) = **24 trials**.
 - The order is shuffled from a seed derived from the participant id, and **the seed is
   recorded**. Same participant, same block, forever — so a re-run is comparable rather than new.
-- The target is highlighted for ~2 s. **t0 is when the cue ends**, which is machine-precise and
+- The target is highlighted for ~5 s, with a shimmer along its edges as well as a colour
+  change — a colour alone is easy to miss in passthrough, and a cue nobody saw scores as a
+  failure to refer rather than as the missed cue it was. **The shimmer is cleared outright at
+  cue end, not faded**: a target still marked during the answering window would turn every
+  pointing trial into a free one. **t0 is when the cue ends**, which is machine-precise and
   does not depend on a facilitator judging when the participant started.
+  The length is `ReferenceTrialRunner.cueSeconds`, and **the scene's serialised value is the one
+  that runs** — editing the default in the script does nothing to the component already in
+  `Room Flow`. Both are five; change both together, or the data records one number while the
+  headset does another.
 - **Naming trials are capped at 2 attempts**, then scored incorrect. This is the single thing
   that makes the request budget bounded rather than hopeful — every naming attempt is a
   request. Pointing is uncapped because it costs nothing.

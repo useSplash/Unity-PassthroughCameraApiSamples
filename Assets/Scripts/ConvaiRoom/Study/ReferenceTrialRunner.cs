@@ -105,8 +105,22 @@ namespace ConvaiRoom
                  "have this many competitors sharing its label.")]
         [Range(1, 6)] public int maxDistractors = 4;
 
-        [Tooltip("How long the target is highlighted. The clock starts when this ends.")]
-        public float cueSeconds = 2f;
+        // The value that RUNS is the one serialised in the scene, not this initialiser. Unity
+        // only reads a field initialiser for an instance that has never been serialised, so
+        // editing this line does nothing to a component already sitting in Room Flow. That is
+        // not hypothetical: this default was moved 2f -> 5f while the scene went on holding
+        // cueSeconds: 2, which put the README, the facilitator run-card and the code all at
+        // five while the headset ran two -- and referenceBlock.cueSeconds would have recorded
+        // the two, so the disagreement was only ever visible by reading the scene.
+        // Change both, and check the scene diff.
+        [Tooltip("How long the target is highlighted. The clock starts when this ends.\n\n" +
+                 "Five, not two: a participant looking elsewhere when a two-second cue fires " +
+                 "has no second chance at it, and a trial nobody saw the cue for scores as a " +
+                 "failure to refer rather than as the missed cue it was.\n\n" +
+                 "It is recorded in referenceBlock.cueSeconds, so a change is visible in the " +
+                 "data -- but changing it BETWEEN participants makes their blocks " +
+                 "incomparable. Settle it before the first session.")]
+        public float cueSeconds = 5f;
 
         [Tooltip("How long a trial may run before it is scored as a timeout.")]
         public float timeoutSeconds = 60f;
@@ -168,6 +182,13 @@ namespace ConvaiRoom
         // back off the renderer rather than assuming it, so the box gets back whatever it had.
         private WireBox _cued;
         private Color _cuedWas;
+
+        /// <summary>
+        /// The cued box's shimmer, held so it can be stopped at exactly the instant the cue ends
+        /// rather than found again by searching. See <see cref="ClearCue"/> for why the timing
+        /// of that stop is not cosmetic.
+        /// </summary>
+        private WireBoxShimmer _cuedShimmer;
 
         /// <summary>
         /// Whether the pointer's own highlight was on before the cue borrowed the box.
@@ -830,6 +851,12 @@ namespace ConvaiRoom
                 _pointerHighlightWas = pointer.highlightAimed;
                 pointer.highlightAimed = false;
                 _suppressedPointer = true;
+
+                // Suppressing only stops the NEXT one being drawn. Whatever the participant was
+                // aiming at when this trial came round is still lit, and would sit there
+                // glowing beside the cue -- two marked objects, in a block that is asking which
+                // object was meant. The referent itself is deliberately not forgotten.
+                pointer.ClearAimHighlight();
             }
 
             var line = box.GetComponent<LineRenderer>();
@@ -837,10 +864,26 @@ namespace ConvaiRoom
             _cued = box;
 
             box.SetColor(cueColor);
+
+            // Motion on top of the colour. The colour alone is what a participant misses when
+            // they happen to be looking at the other side of the room, and a missed cue is
+            // recorded as a failed trial rather than as the nothing it actually was.
+            _cuedShimmer = WireBoxShimmer.AttachTo(proxy);
+            if (_cuedShimmer != null) _cuedShimmer.Show(cueColor);
         }
 
         private void ClearCue()
         {
+            // FIRST, and before the colour goes back. Hide() clears the particles already in the
+            // air rather than letting them live out their lifetime -- a target still shimmering
+            // after the cue has been recorded as ended is a target the participant can simply
+            // point at, which would quietly turn every pointing trial into a free one.
+            if (_cuedShimmer != null)
+            {
+                _cuedShimmer.Hide();
+                _cuedShimmer = null;
+            }
+
             if (_cued != null)
             {
                 _cued.SetColor(_cuedWas);

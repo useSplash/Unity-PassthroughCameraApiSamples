@@ -8042,6 +8042,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ConvaiRoom.ConvaiRoomHealthProbe
   intervalSeconds: 5
   logOnlyOnChange: 0
+  traceActions: 1
   bridge: {fileID: 0}
   recorder: {fileID: 0}
   rebuilder: {fileID: 0}
@@ -8191,6 +8192,11 @@ MonoBehaviour:
   backend: 0
   ollamaUrl: http://127.0.0.1:11434
   ollamaModel: qwen2.5:7b
+  ollamaCandidates:
+  - qwen2.5:7b
+  - qwen2.5:3b
+  - llama3.1:8b
+  ollamaKeepAlive: 30m
   ollamaTemperature: 0.2
   model: claude-haiku-4-5
   effort: 
@@ -8229,7 +8235,7 @@ MonoBehaviour:
   context: {fileID: 0}
   reps: 3
   maxDistractors: 4
-  cueSeconds: 2
+  cueSeconds: 5
   timeoutSeconds: 60
   betweenSeconds: 1.5
   namingAttemptCap: 2
