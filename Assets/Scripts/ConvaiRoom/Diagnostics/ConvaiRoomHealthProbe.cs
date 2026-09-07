@@ -31,6 +31,12 @@ namespace ConvaiRoom
     {
         private const string Prefix = "[RoomHealth]";
 
+        /// <summary>
+        /// Its own tag rather than sharing the health one, so a session can be read for what
+        /// she actually did without the five-second heartbeat in between every line.
+        /// </summary>
+        private const string TracePrefix = "[RoomActions]";
+
         [Header("Reporting")]
         [Tooltip("Seconds between reports. Zero or less reports once on start and stops.")]
         public float intervalSeconds = 5f;
@@ -39,6 +45,15 @@ namespace ConvaiRoom
                  "every interval. Quieter for long sessions, but you lose the heartbeat " +
                  "that tells you the probe is still alive.")]
         public bool logOnlyOnChange;
+
+        [Tooltip("Say which action she ran and what became of it.\n\n" +
+                 "The SDK has its own monitor for this and it is already on the character, but " +
+                 "it writes at Debug level through the Convai logger -- so it says nothing " +
+                 "unless the Convai log settings reach the build, and across three test builds " +
+                 "they did not. These lines are ordinary Unity logging and cannot be silenced " +
+                 "by a setting that lives somewhere else, which is the entire reason they are " +
+                 "here rather than being left to the component that already does this.")]
+        public bool traceActions = true;
 
         [Header("Wiring (left empty, these are found in the scene)")]
         public ObjectDetectionScanBridge bridge;
@@ -66,6 +81,7 @@ namespace ConvaiRoom
         private readonly List<string> _problems = new List<string>();
         private float _nextReportTime;
         private string _lastVerdict;
+        private ConvaiActionDispatcher _tracedDispatcher;
 
         private void Awake()
         {
@@ -90,9 +106,106 @@ namespace ConvaiRoom
             Report();
         }
 
+        /// <summary>Nothing may outlive this component holding a listener on a live dispatcher.</summary>
+        private void OnDisable() => DetachActionTrace();
+
+        /// <summary>
+        /// Keeps the step trace attached to whichever dispatcher is currently hers.
+        ///
+        /// Re-checked on every report rather than wired once at startup, for the same reason
+        /// <see cref="Character"/> is looked up rather than cached: she is spawned into the
+        /// room long after this component wakes, and the panel can respawn her at any time. A
+        /// subscription taken once is taken either to nothing or to a dispatcher that is later
+        /// destroyed, and in both cases the trace goes quiet without saying so -- which is the
+        /// exact failure this whole trace exists to stop happening.
+        /// </summary>
+        private void EnsureActionTrace()
+        {
+            var live = Character();
+            var dispatcher = live == null ? null : live.GetComponent<ConvaiActionDispatcher>();
+
+            // Unity's == treats a destroyed object as null, so a respawn compares unequal here
+            // and is re-attached rather than silently kept on the corpse of the old one.
+            if (dispatcher == _tracedDispatcher) return;
+
+            DetachActionTrace();
+
+            if (!traceActions || dispatcher == null) return;
+
+            dispatcher.OnStepStarted.AddListener(TraceStepStarted);
+            dispatcher.OnStepCompleted.AddListener(TraceStepCompleted);
+            dispatcher.OnBatchAborted.AddListener(TraceBatchAborted);
+            _tracedDispatcher = dispatcher;
+        }
+
+        private void DetachActionTrace()
+        {
+            if (_tracedDispatcher == null)
+            {
+                _tracedDispatcher = null;
+                return;
+            }
+
+            _tracedDispatcher.OnStepStarted.RemoveListener(TraceStepStarted);
+            _tracedDispatcher.OnStepCompleted.RemoveListener(TraceStepCompleted);
+            _tracedDispatcher.OnBatchAborted.RemoveListener(TraceBatchAborted);
+            _tracedDispatcher = null;
+        }
+
+        private void TraceStepStarted(ConvaiActionInvocation invocation) =>
+            Debug.Log($"{TracePrefix} start {Describe(invocation)}");
+
+        /// <summary>
+        /// Says what became of one step, and says it loudly when the answer is not success.
+        ///
+        /// The status is the whole point of the line. "She said she would walk and then did
+        /// not" has at least four different readings -- it never started, it was cancelled by
+        /// the next batch, it ran out of time, or the behaviour declined it -- and every one of
+        /// them is a different thing to go and change. Guessing between them from what she said
+        /// afterwards is what several sessions were spent doing.
+        /// </summary>
+        private void TraceStepCompleted(ConvaiActionStepReport report)
+        {
+            if (report == null) return;
+
+            var status = report.Result.Status;
+            var line = $"{TracePrefix} {status} {Describe(report.Invocation)}";
+
+            if (status == ConvaiActionExecutionStatus.Succeeded)
+            {
+                Debug.Log(line);
+                return;
+            }
+
+            Debug.LogWarning(
+                $"{line} reason={report.FailureReason} abortedBatch={report.BatchAborted} " +
+                $"{report.FailureMessage}");
+        }
+
+        private void TraceBatchAborted() =>
+            Debug.LogWarning($"{TracePrefix} the rest of the batch was abandoned");
+
+        /// <summary>Names the action and what it was aimed at, which is all a trace line needs.</summary>
+        private static string Describe(ConvaiActionInvocation invocation)
+        {
+            if (invocation == null) return "'?'";
+
+            var action = invocation.Definition?.ActionName;
+            if (string.IsNullOrEmpty(action)) action = invocation.Command?.Name;
+            if (string.IsNullOrEmpty(action)) action = "?";
+
+            var target = invocation.ResolvedTarget?.Name;
+            return string.IsNullOrEmpty(target) ? $"'{action}'" : $"'{action}' -> {target}";
+        }
+
         /// <summary>Writes one report immediately. Public so a button can force one.</summary>
         public void Report()
         {
+            // Before anything is measured: the trace is the one output here that has to survive
+            // her being spawned late and respawned since, and the report interval is already
+            // the heartbeat that notices both.
+            EnsureActionTrace();
+
             _problems.Clear();
             _builder.Clear();
 
