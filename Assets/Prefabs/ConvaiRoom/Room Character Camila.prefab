@@ -11445,7 +11445,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Actions.ConvaiActionFeedbackRelay
   _failureFeedbackMode: 2
   _successFeedbackMode: 1
-  _droppedCommandFeedbackMode: 2
+  _droppedCommandFeedbackMode: 1
   _cooldownSeconds: 10
   _scriptedFailureLines:
   - _reason: 1
