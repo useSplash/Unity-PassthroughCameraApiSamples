@@ -11443,9 +11443,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 57bc88c36cd9665489469fd6103d0606, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.Actions.ConvaiActionFeedbackRelay
-  _failureFeedbackMode: 1
+  _failureFeedbackMode: 2
   _successFeedbackMode: 1
-  _droppedCommandFeedbackMode: 1
+  _droppedCommandFeedbackMode: 2
   _cooldownSeconds: 10
   _scriptedFailureLines:
   - _reason: 1
